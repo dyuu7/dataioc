@@ -110,6 +110,107 @@ def test_class_provider_remaps_weak_dependencies_for_each_id():
     assert "doubled" in str(container.logger)
 
 
+@pytest.mark.parametrize("first_access", ["class", "indexed", "dependency"])
+@pytest.mark.parametrize("zero_value", [None, object()])
+def test_zero_provider_precedence_is_independent_of_access_order(
+    first_access, zero_value
+):
+    class Result(IndexedData):
+        pass
+
+    class Dependent(DataDescriptor):
+        def __build__(self, container):
+            return container[Result]
+
+    calls = []
+
+    def default_provider(container):
+        calls.append(("default", container.id))
+        return 1
+
+    def zero_provider(container):
+        calls.append(("zero", container.id))
+        return zero_value
+
+    container = DataIoC().add_provider(Result, default_provider)
+    container.add_provider(Result[0], zero_provider)
+    first_key = {
+        "class": Result,
+        "indexed": Result[0],
+        "dependency": Dependent[0],
+    }[first_access]
+
+    assert container[first_key] is zero_value
+    assert container[Result] is zero_value
+    assert container[Result[0]] is zero_value
+    assert container[Dependent[0]] is zero_value
+    assert container[Dependent[1]] == 1
+    assert container[Result[1]] == 1
+    assert calls == [("zero", 0), ("default", 1)]
+
+
+@pytest.mark.parametrize("allow_implicit_registering", [False, True])
+def test_class_access_finds_zero_provider_without_class_provider(
+    allow_implicit_registering,
+):
+    class Result(IndexedData):
+        @classmethod
+        def __build__(cls, container):
+            return "built-in"
+
+    container = DataIoC(allow_implicit_registering=allow_implicit_registering)
+    container.add_provider(Result[0], lambda _: "zero")
+
+    assert container[Result] == "zero"
+    assert container[Result[0]] == "zero"
+    if allow_implicit_registering:
+        assert container[Result[1]] == "built-in"
+    else:
+        with pytest.raises(RuntimeError, match="Builder.*not found"):
+            container[Result[1]]
+
+
+def test_zero_provider_overrides_registered_class_builder():
+    class Result(IndexedData):
+        @classmethod
+        def __build__(cls, container):
+            return container[Sum] + container[Sum[0]]
+
+    container = DataIoC(allow_implicit_registering=False).with_data(
+        Sensor((1,)), Sensor[1]((3,))
+    )
+    container.add(Result).add(Sum[0]).add(Sum[1])
+    container.add_provider(Result[0], lambda _: 99)
+
+    assert container[Result] == container[Result[0]] == 99
+    assert container[Result[1]] == 4
+
+
+def test_zero_provider_for_unique_data_is_shared_between_build_ids():
+    class Calibration(IndexedData, UniqueData):
+        pass
+
+    class Adjusted(DataDescriptor):
+        def __build__(self, container):
+            return container[Calibration] + container[Sum]
+
+    calls = []
+
+    def calibration_provider(container):
+        calls.append(container.id)
+        return 10
+
+    container = DataIoC().with_data(Sensor[1]((1,)), Sensor[2]((2,)))
+    container.add_provider(Calibration, lambda _: 100)
+    container.add_provider(Calibration[0], calibration_provider)
+
+    assert container[Calibration] == 10
+    assert container[Calibration[99]] == 10
+    assert container[Adjusted[1]] == 11
+    assert container[Adjusted[2]] == 12
+    assert calls == [0]
+
+
 def test_provider_replacement_before_resolution_preserves_existing_cache():
     container = DataIoC().add_provider(Sum[0], lambda _: 1)
     container.add_provider(Sum[0], lambda _: 2)
