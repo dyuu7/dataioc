@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Union
 
 import numpy as np
 from numpy.typing import ArrayLike
@@ -12,7 +12,12 @@ def is_homogeneous(inp: np.ndarray, out: np.ndarray):
     if inp.shape != out.shape:
         # 不允许数组尺寸发生改变
         return False
-    if out.dtype != np.promote_types(inp.dtype, out.dtype):
+    try:
+        promoted_dtype = np.promote_types(inp.dtype, out.dtype)
+    except TypeError:
+        # Dtypes such as StringDType and bool have no common promoted dtype.
+        return False
+    if out.dtype != promoted_dtype:
         # 输出只允许类型抬升
         return False
 
@@ -43,26 +48,36 @@ class DataNDArray(np.ndarray, IndexedData):
             np.asarray(inp) if isinstance(inp, typ) else inp for inp in inputs
         )
         if out is not None:
-            out = tuple(np.asarray(o) if isinstance(o, typ) else o for o in out)
-            kwargs["out"] = out
+            kwargs["out"] = tuple(
+                np.asarray(o) if isinstance(o, typ) else o for o in out
+            )
 
         ret = getattr(ufunc, method)(*inputs, **kwargs)
 
         if ret is NotImplemented:
             return NotImplemented
 
-        if isinstance(ret, np.ndarray) and is_homogeneous(self, ret):
-            return ret.view(typ)
-        else:
-            return ret
+        results = ret if isinstance(ret, tuple) else (ret,)
+        outputs = out if out is not None else (None,) * len(results)
+        wrapped = []
+        for result, output in zip(results, outputs):
+            # Explicit outputs must retain their identity, including in-place updates.
+            if output is not None:
+                wrapped.append(output)
+            elif isinstance(result, np.ndarray) and is_homogeneous(self, result):
+                wrapped.append(result.view(typ))
+            else:
+                wrapped.append(result)
+        return tuple(wrapped) if isinstance(ret, tuple) else wrapped[0]
 
     def reshape(self, *shape, **kwargs) -> Any:
         return self.view(np.ndarray).reshape(*shape, **kwargs)
 
     def __getitem__(self, item):
-        return super().__getitem__(item).view(np.ndarray)
+        result = super().__getitem__(item)
+        return result.view(np.ndarray) if isinstance(result, np.ndarray) else result
 
     @classmethod
-    def __build__(cls, container: DataIoC | IndexedDataIoC):
+    def __build__(cls, container: Union[DataIoC, IndexedDataIoC]):
         id_str = f"[{container.id}]" if isinstance(container, IndexedDataIoC) else ""
         raise NotImplementedError(f"{cls.__name__}{id_str} must be provided.")

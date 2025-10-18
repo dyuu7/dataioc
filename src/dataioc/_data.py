@@ -8,8 +8,10 @@ from collections.abc import Callable
 from typing import (
     Any,
     Generic,
+    Optional,
     Protocol,
     TypeVar,
+    Union,
     cast,
     overload,
     runtime_checkable,
@@ -289,9 +291,9 @@ class DataIoC:
             是否保存所有IoC访问记录。默认只保留当次访问依赖用于调试输出。
             为True时保留完整访问树，可能导致额外开销。
         """
-        self._collection: dict[DataDescriptor | type, Any] = {}
+        self._collection: dict[Union[DataDescriptor, type], Any] = {}
         self._lazy_collection: dict[
-            DataDescriptor | type, Callable[[DataIoC], Any]
+            Union[DataDescriptor, type], Callable[[DataIoC], Any]
         ] = {}
         self.allow_implicit_register = allow_implicit_registering
         self.record_all = record_all
@@ -309,8 +311,8 @@ class DataIoC:
 
     def add(
         self,
-        data_type: DataT | type[DataT] | DataDescriptor[DataT],
-        data: DataT | None = None,
+        data_type: Union[DataT, type[DataT], DataDescriptor[DataT]],
+        data: Optional[DataT] = None,
     ) -> Self:
         data_type = _descriptor_instance(data_type)
         if data is None:
@@ -330,8 +332,8 @@ class DataIoC:
 
     def add_provider(
         self,
-        data_type: type[DataT] | DataDescriptor[DataT],
-        provider: SupportsBuild | Callable,
+        data_type: Union[type[DataT], DataDescriptor[DataT]],
+        provider: Union[SupportsBuild, Callable],
     ) -> Self:
         data_type = _descriptor_instance(data_type)
         initiator = None
@@ -400,7 +402,9 @@ class DataIoC:
 
         return ret
 
-    def __setitem__(self, data_type: type[DataT] | DataDescriptor[DataT], data: DataT):
+    def __setitem__(
+        self, data_type: Union[type[DataT], DataDescriptor[DataT]], data: DataT
+    ):
         data_type = _descriptor_instance(data_type)
         self._collection[data_type] = data
         if isinstance(data_type, IndexedDataTypeDescriptor) and data_type.id == 0:
@@ -409,13 +413,17 @@ class DataIoC:
             # 对于直接用类名绑定，则默认同时绑定对应的0号数据
             self._collection[IndexedDataTypeDescriptor.of(data_type)] = data
 
-    def find_builder(self, dtype: type[DataT] | DataDescriptor[DataT]):
+    def find_builder(self, dtype: Union[type[DataT], DataDescriptor[DataT]]):
         """查找构造器
 
         * 直接以类别指定的构造器：适用于所有id下的 IndexedDataTypeDescriptor ，可以通用
 
         * 以特定 DataDescriptor 指定的构造器：只适用于特定的 DataDescriptor
         """
+        # Class reads target ID 0; class registrations remain fallbacks for all IDs.
+        if isinstance(dtype, IndexedDataMeta):
+            dtype = IndexedDataTypeDescriptor.of(dtype, id=DataDescriptor.DefaultID)
+
         builder = self._lazy_collection.get(dtype, None)
         if builder is None:
             if isinstance(dtype, IndexedDataTypeDescriptor):
@@ -468,7 +476,7 @@ class IndexedDataIoC(DataIoC):
 
 
 class _DataIoCDependency:
-    def __init__(self, parent: _DataIoCDependency | None, key, new=False):
+    def __init__(self, parent: Optional[_DataIoCDependency], key, new=False):
         self._children: list[tuple[Any, _DataIoCDependency]] = []
         self._parent = parent
         self._key = key
@@ -658,7 +666,7 @@ def _descriptor_instance(dtype: Any) -> Any:
 
 
 def _extract_builder_with_context(
-    dtype: DataDescriptor | SupportsBuild | Callable, initiator=None
+    dtype: Union[DataDescriptor, SupportsBuild, Callable], initiator=None
 ):
     dtype = _descriptor_instance(dtype)
     if initiator is None:
@@ -673,7 +681,7 @@ def _extract_builder_with_context(
         return _bind_builder_context(builder, initiator=initiator)
 
 
-def _extract_builder(dtype: DataDescriptor | SupportsBuild | Callable):
+def _extract_builder(dtype: Union[DataDescriptor, SupportsBuild, Callable]):
     if isinstance(dtype, SupportsBuild):
         builder = dtype.__build__
     elif callable(dtype):
