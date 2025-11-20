@@ -22,3 +22,10 @@ The test matrix covers Python 3.9 through 3.14 and NumPy 1.26 and 2.x.
 - Build with `--strict` so broken links and configuration warnings fail CI.
 
 The documentation site is built and published from `main` by GitHub Actions.
+
+## Release
+
+Update the version in `pyproject.toml`, refresh `uv.lock`, and push a `vX.Y.Z`
+tag. The release workflow builds the source distribution and wheel, creates or
+updates the GitHub Release, and publishes the same artifacts to PyPI through
+Trusted Publishing.
