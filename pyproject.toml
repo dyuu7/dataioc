@@ -62,7 +62,6 @@ include = [
   "/tests",
   "/README.md",
   "/README.zh-CN.md",
-  "/CONTRIBUTORS.md",
   "/LICENSE",
   "/docs",
   "/mkdocs.yml",

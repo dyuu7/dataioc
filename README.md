@@ -51,8 +51,6 @@ Requires Python 3.9+. The core has no runtime dependencies on Python 3.11+; Pyth
 
 ## Install
 
-After the first PyPI release:
-
 ```bash
 python -m pip install dataioc
 python -m pip install "dataioc[numpy]"
@@ -143,7 +141,7 @@ Multiple input arrays are column-stacked after checking their sample lengths. Sh
 
 ## Development
 
-For the unreleased source tree:
+For development from source:
 
 ```bash
 git clone https://github.com/dyuu7/dataioc.git

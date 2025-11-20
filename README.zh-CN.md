@@ -43,8 +43,6 @@ assert alternative[Total] == 60
 
 ## 安装
 
-首个 PyPI 版本发布后：
-
 ```bash
 python -m pip install dataioc
 python -m pip install "dataioc[numpy]"

@@ -31,9 +31,9 @@ jobs:
       - run: uv run pyright
       - run: uv build --no-sources
       - name: Verify core without optional dependencies
-        run: >-
-          uv run --isolated --no-project --with ./dist/dataioc-0.1.0-py3-none-any.whl
-          python -c "import sys, dataioc; from dataioc import *; assert 'numpy' not in sys.modules"
+        run: |
+          wheel=$(echo dist/dataioc-*.whl)
+          uv run --isolated --no-project --with "$wheel" python -c "import sys, dataioc; from dataioc import *; assert 'numpy' not in sys.modules"
 
   numpy-compatibility:
     name: NumPy ${{ matrix.numpy }} / Python ${{ matrix.python-version }}

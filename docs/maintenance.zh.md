@@ -22,3 +22,8 @@ uv build --no-sources
 - 使用 `--strict` 构建，让断链和配置警告使 CI 失败。
 
 文档站点由 GitHub Actions 从 `main` 分支构建并发布。
+
+## 发布
+
+更新 `pyproject.toml` 中的版本并刷新 `uv.lock`，然后推送 `vX.Y.Z` tag。发布 workflow
+会构建源码包和 wheel，创建或更新 GitHub Release，并通过 Trusted Publishing 将同一批产物发布到 PyPI。
