@@ -24,7 +24,7 @@ jobs:
       - run: python -m pip install uv
       - run: uv sync --frozen
       - run: uv run mkdocs build --strict
-      - uses: actions/upload-pages-artifact@v4
+      - uses: actions/upload-pages-artifact@v5.0.0
         if: github.event_name != 'pull_request'
         with:
           path: site
