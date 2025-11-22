@@ -149,8 +149,6 @@ cd dataioc
 uv sync --frozen
 ```
 
-The Hatchling, Ruff, Pyright, pytest, coverage, and uv configuration follows [dafmit-aeromag](https://github.com/dyuu7/dafmit-aeromag).
-
 ```bash
 uv sync --frozen
 uv run pytest --cov --cov-report=term-missing
@@ -160,8 +158,6 @@ uv run pyright
 uv run mkdocs build --strict
 uv build --no-sources
 ```
-
-`dataioc` does not depend on `deinterf`, `dafmit-aeromag`, or `aeromag-synth`. Both `deinterf` and a future `aeromag-synth` can depend on it independently.
 
 ## Contributors
 
