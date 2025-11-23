@@ -2,7 +2,7 @@
 
 `dataioc` 用可复用的推导规则描述数据。请求一个结果时，容器解析它的依赖，并缓存构建出的值。数据提供方式可以独立于使用它们的计算逻辑进行配置。
 
-[English](README.md) | [简体中文](README.zh-CN.md) | [文档](https://dyuu7.github.io/dataioc/)
+[English](README.md) | [简体中文](README.zh-CN.md) | [文档](https://dyuu7.github.io/dataioc/zh/)
 
 它是一个用于声明式数据依赖和按需计算的轻量 Python 基础组件，适用于模型流水线、特征生成、仿真和其他数据处理流程。
 
@@ -48,7 +48,7 @@ python -m pip install dataioc
 python -m pip install "dataioc[numpy]"
 ```
 
-完整内容请阅读[文档](https://dyuu7.github.io/dataioc/)，包括 API、数据依赖模型、provider、索引数据和 NumPy 支持。
+完整内容请阅读[文档](https://dyuu7.github.io/dataioc/zh/)，包括 API、数据依赖模型、provider、索引数据和 NumPy 支持。
 
 ## 开发
 
