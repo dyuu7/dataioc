@@ -1,0 +1,24 @@
+---
+config:
+  theme: base
+  themeVariables:
+    fontFamily: monospace
+    fontSize: 24px
+    primaryColor: '#ffffff'
+    primaryTextColor: '#253039'
+    primaryBorderColor: '#7d8992'
+    lineColor: '#53616a'
+  flowchart:
+    htmlLabels: false
+    curve: linear
+    nodeSpacing: 24
+    rankSpacing: 32
+    padding: 12
+---
+flowchart LR
+    Samples --> Features --> Report
+    Provider -.-> Features
+    classDef derived fill:#e1f3ed,stroke:#278668,stroke-width:2px
+    classDef provider fill:#ffffff,stroke:#a26624,stroke-width:2px,stroke-dasharray:5 4
+    class Features derived
+    class Provider provider

@@ -23,8 +23,25 @@ container = DataIoC().with_data(
 assert container[SensorArray[1]].sum() == 6
 ```
 
-支持范围是 `numpy>=1.26,<3`，包括 NumPy 1.26 和 2.x。解析器会根据 Python 版本选择兼容的最新版本。
+## 兼容范围
 
-当结果形状不变且 dtype 兼容时，`DataNDArray` 会保留数组子类。支持多输出 ufunc、显式 `out`数组和原地操作。
+支持范围是 `numpy>=1.26,<3`。Python 3.9 支持 NumPy 1.26 和 2.0；更新的 NumPy 版本需要更新的 Python。安装工具会选择兼容版本。
 
-切片、reshape 和标量索引遵循 [API 参考](api.zh.md)中的行为说明。数值提升遵循当前安装的NumPy 版本，因此 NumPy 1.x 和 2.x 的结果 dtype 可能不同。
+CI 测试 NumPy 1.26.0、最新 1.26、2.0.0 和最新稳定 2.x，同时覆盖 Python 3.9 至 3.14 的锁定依赖组合。
+
+## 数组行为
+
+| 操作 | 行为 |
+| --- | --- |
+| 多个输入数组 | 检查样本数量后按列拼接 |
+| 形状保持的数值 ufunc | 结果 dtype 兼容时保留子类 |
+| 多输出 ufunc | 对每个结果分别应用子类保留规则 |
+| 显式 `out` 或原地操作 | 保持输出对象身份不变 |
+| 切片或 reshape | 返回普通 NumPy 数组 |
+| 标量索引或归约 | 遵循 NumPy 的标量行为 |
+
+数值提升和溢出行为遵循当前安装的 NumPy 版本，因此 1.x 和 2.x 的结果 dtype 可能不同。
+
+核心导入和 `from dataioc import *` 都不会导入 NumPy。显式导入 `DataNDArray` 才加载可选集成，此时需要已经安装 NumPy。
+
+接口签名见 [API 参考](api.zh.md)。
