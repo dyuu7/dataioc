@@ -6,22 +6,42 @@
 python -m pip install "dataioc[numpy]"
 ```
 
-继承 `DataNDArray` 定义数组类型：
+同一套测量模型可以继承 `DataNDArray`，为 `RawReadings` 使用 NumPy 数组表示：
 
 ```python
-from dataioc import DataIoC, DataNDArray
+from dataioc import DataDescriptor, DataIoC, DataNDArray
 
 
-class SensorArray(DataNDArray):
+class RawReadings(DataNDArray):
     pass
 
 
+class Measurements(DataDescriptor):
+    def __build__(self, container: DataIoC):
+        return container[RawReadings] / 10
+
+
+class Statistics(DataDescriptor):
+    def __build__(self, container: DataIoC):
+        values = container[Measurements]
+        return values.mean(), values.max()
+
+
+class Report(DataDescriptor):
+    def __build__(self, container: DataIoC):
+        mean, peak = container[Statistics]
+        return f"mean={mean:g}, peak={peak:g}"
+
+
 container = DataIoC().with_data(
-    SensorArray([1, 1, 1]),
-    SensorArray[1]([2, 2, 2]),
+    RawReadings([10, 20, 60]),
+    RawReadings[1]([20, 40, 120]),
 )
-assert container[SensorArray[1]].sum() == 6
+assert container[Report] == "mean=3, peak=6"
+assert container[Report[1]] == "mean=6, peak=12"
 ```
+
+变化的只有叶子数据的表示方式和数值操作。四个模型角色及索引依赖行为都与其他指南保持一致。
 
 ## 兼容范围
 

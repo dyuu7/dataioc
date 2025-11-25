@@ -6,22 +6,42 @@ Install the optional extra:
 python -m pip install "dataioc[numpy]"
 ```
 
-Define an array type by subclassing `DataNDArray`:
+The same measurement model can use a NumPy-backed `RawReadings` type by subclassing `DataNDArray`:
 
 ```python
-from dataioc import DataIoC, DataNDArray
+from dataioc import DataDescriptor, DataIoC, DataNDArray
 
 
-class SensorArray(DataNDArray):
+class RawReadings(DataNDArray):
     pass
 
 
+class Measurements(DataDescriptor):
+    def __build__(self, container: DataIoC):
+        return container[RawReadings] / 10
+
+
+class Statistics(DataDescriptor):
+    def __build__(self, container: DataIoC):
+        values = container[Measurements]
+        return values.mean(), values.max()
+
+
+class Report(DataDescriptor):
+    def __build__(self, container: DataIoC):
+        mean, peak = container[Statistics]
+        return f"mean={mean:g}, peak={peak:g}"
+
+
 container = DataIoC().with_data(
-    SensorArray([1, 1, 1]),
-    SensorArray[1]([2, 2, 2]),
+    RawReadings([10, 20, 60]),
+    RawReadings[1]([20, 40, 120]),
 )
-assert container[SensorArray[1]].sum() == 6
+assert container[Report] == "mean=3, peak=6"
+assert container[Report[1]] == "mean=6, peak=12"
 ```
+
+Only the leaf representation and numerical operations change. The four model roles and indexed dependency behavior remain the same as in the other guides.
 
 ## Compatibility
 

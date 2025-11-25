@@ -1,57 +1,65 @@
 # Quickstart
 
-## 1. Provide source data
+The smallest useful model has two parts: values that already exist, and local rules for deriving other values. The container connects those rules when a result is requested.
 
-Use `with_data` for values that already exist.
+## 1. Register an existing value
 
-```python
-from dataclasses import dataclass
-
-from dataioc import DataDescriptor, DataIoC, IndexedData
-
-
-@dataclass
-class Sensor(IndexedData):
-    values: tuple[int, ...]
-
-
-class Total(DataDescriptor[int]):
-    def __build__(self, container: DataIoC) -> int:
-        return sum(container[Sensor].values)
-
-
-container = DataIoC().with_data(Sensor((1, 2, 3)))
-```
-
-## 2. Define a derived value
-
-Implement `__build__` and request the descriptor.
+Use `with_data` or `add` for a value that is already available.
 
 ```python
-assert container[Total] == 6
-assert container[Total] == 6  # The second access uses the cache.
+from dataioc import DataDescriptor, DataIoC
+
+
+class RawReadings(DataDescriptor[tuple[int, ...]]):
+    pass
+
+
+container = DataIoC().add(RawReadings, (10, 20, 60))
 ```
 
-The container builds `Total` only on its first access. Its dependency, `Sensor`, is requested inside the builder.
+## 2. Define local derivations
 
-## 3. Provide a computed source
-
-Use a provider when a value should be calculated or replaced at runtime.
+Each descriptor requests only the values it needs. There is no global execution order to write down.
 
 ```python
-alternative = DataIoC().add_provider(Sensor, lambda _: Sensor((10, 20, 30)))
-assert alternative[Total] == 60
+class Measurements(DataDescriptor[tuple[float, ...]]):
+    def __build__(self, container: DataIoC) -> tuple[float, ...]:
+        return tuple(value / 10 for value in container[RawReadings])
+
+
+class Statistics(DataDescriptor[tuple[float, float]]):
+    def __build__(self, container: DataIoC) -> tuple[float, float]:
+        values = container[Measurements]
+        return sum(values) / len(values), max(values)
+
+
+class Report(DataDescriptor[str]):
+    def __build__(self, container: DataIoC) -> str:
+        mean, peak = container[Statistics]
+        return f"mean={mean:g}, peak={peak:g}"
 ```
 
-For objects with dependencies, define `__build__` instead of using a lambda.
+## 3. Request the result
+
+Requesting `Report` causes the container to resolve `Report -> Statistics -> Measurements -> RawReadings`. Each successful value is cached in that container.
 
 ```python
-class EstimatedSensor:
-    def __build__(self, container: DataIoC) -> Sensor:
-        return Sensor((10, 20, 30))
-
-
-alternative = DataIoC().add_provider(Sensor, EstimatedSensor())
+assert container[Report] == "mean=3, peak=6"
+assert container[Report] == "mean=3, peak=6"  # Reuses the cached result.
 ```
+
+## 4. Replace one derivation
+
+A provider changes how a quantity is obtained while its consumers keep requesting the same key.
+
+```python
+recorded = DataIoC().add_provider(
+    Measurements,
+    lambda _: (2.0, 4.0, 12.0),
+)
+assert recorded[Report] == "mean=6, peak=12"
+```
+
+`recorded` does not need `RawReadings`, because its provider supplies ready-to-use `Measurements`. `Statistics` and `Report` are unchanged. For a provider with its own dependencies or state, define `__build__` on a provider object; see [Providers](providers.md).
 
 Continue with [Core concepts](concepts.md) or [Providers](providers.md).

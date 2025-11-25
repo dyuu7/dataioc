@@ -1,92 +1,89 @@
 # dataioc
 
-**面向 Python 的声明式数据依赖与按需计算。**
+**面向 Python 的声明式数据依赖图。**
 
-多个计算共享输入和中间量时，替换数据来源可能影响许多下游计算。dataioc 让每个计算只请求自己需要的数据，数据提供方式由容器独立配置。
+每个 `DataDescriptor` 代表一个数据量，并定义它如何由直接依赖推导。`DataIoC` 将这些局部规则组成计算图，只计算和缓存当前结果所需的子图。给任一数据量绑定 provider，就能替换图中的这一步，下游计算无需改动。
 
 [English](https://github.com/dyuu7/dataioc/blob/main/README.md) | [简体中文](https://github.com/dyuu7/dataioc/blob/main/README.zh-CN.md) | [文档](https://dyuu7.github.io/dataioc/zh/) | [PyPI](https://pypi.org/project/dataioc/)
 
 [![CI](https://github.com/dyuu7/dataioc/actions/workflows/ci.yml/badge.svg)](https://github.com/dyuu7/dataioc/actions/workflows/ci.yml)
 
-## 一份报告，两种数据来源
+## 示例
 
-可以从 `Samples` 推导 `Features`，也可以通过 provider 直接提供预计算的特征。两种情况下，`Report` 都依赖同一个 `Features`。
+原始读数 `10`、`20`、`60` 分别表示测量值 `1`、`2`、`6`。
 
-<img src="https://raw.githubusercontent.com/dyuu7/dataioc/main/docs/assets/data-flow.png" width="480" alt="Samples 推导出 Features，再生成 Report。另一条路径通过 provider 直接提供 Features，无需 Samples。" />
+<img src="https://raw.githubusercontent.com/dyuu7/dataioc/main/docs/assets/data-flow.png" width="720" alt="默认情况下，RawReadings 转换为 Measurements；当 provider 将历史数据绑定到 Measurements 时，这条默认推导被替换，而 Statistics 和 Report 保持不变。" />
 
 ```python
 from dataioc import DataDescriptor, DataIoC
 
 
-class Samples(DataDescriptor):
+class RawReadings(DataDescriptor):
     pass
 
 
-class Features(DataDescriptor):
+class Measurements(DataDescriptor):
     def __build__(self, data):
-        values = data[Samples]
-        mean = sum(values) / len(values)
-        return mean, max(values)
+        return tuple(value / 10 for value in data[RawReadings])
+
+
+class Statistics(DataDescriptor):
+    def __build__(self, data):
+        values = data[Measurements]
+        return sum(values) / len(values), max(values)
 
 
 class Report(DataDescriptor):
     def __build__(self, data):
-        mean, peak = data[Features]
+        mean, peak = data[Statistics]
         return f"mean={mean:g}, peak={peak:g}"
 
 
-data = DataIoC().add(Samples, (1, 2, 6))
+data = DataIoC().add(RawReadings, (10, 20, 60))
 assert data[Report] == "mean=3, peak=6"
-assert data[Features] is data[Features]
+assert data[Measurements] is data[Measurements]
 ```
 
-每个 `__build__` 都是普通的 Python 代码。请求 `Report` 时，容器按需构建它的依赖；后续读取复用该容器中的缓存值。
+调用方只需请求 `data[Report]`，容器会沿依赖关系完成其余计算，并缓存得到的值。
 
-另一个容器可以直接提供 `Features`，无需任何 `Samples`：
+如果这次要使用历史测量值，只需给 `Measurements` 注册另一个 provider：
 
 ```python
-saved = DataIoC()
-saved.add_provider(Features, lambda _: (10, 12))
-assert saved[Report] == "mean=10, peak=12"
+recorded = DataIoC().add_provider(Measurements, lambda _: (1.0, 2.0, 6.0))
+assert recorded[Report] == "mean=3, peak=6"
 ```
 
-报告定义保持不变。计算规则与数据来源可以分别复用和配置。
+`RawReadings` 此时不再需要，`Statistics` 和 `Report` 都不用改。
 
-## 实际应用：磁干扰补偿
+## 适用场景
 
-[deinterf](https://github.com/dyuu7/deinterf) 使用了同样的数据依赖模式。[方向余弦示例](https://github.com/dyuu7/deinterf/blob/main/examples/replace_direction_cosine_source_tmi.py)在磁矢量测量和惯导估计之间替换数据来源，使用方向余弦的模型项保持不变。另一个示例通过组合[添加载荷振动项](https://github.com/dyuu7/deinterf/blob/main/examples/extended_load_vibration_tmi.py)。
+输入和计算过程都固定时，直接调用函数更简单。`dataioc` 适合关系稳定、数据来源会变的模型，例如同一个量在不同场景下来自实测、历史记录、仿真或估计。
 
-这些示例使用 deinterf 内置的容器和应用专用的模型组合语法。dataioc 提供可复用的数据依赖与 provider 抽象，应用负责自己的领域逻辑。
+`dataioc` 最初来自 [deinterf](https://github.com/dyuu7/deinterf)：[方向余弦既可以根据磁矢量测量得到，也可以直接采用惯导估计](https://github.com/dyuu7/deinterf/blob/main/examples/replace_direction_cosine_source_tmi.py)，后面的补偿计算不用跟着改。[dvmss](https://github.com/dyuu7/dvmss) 也沿用这种组织方式：应用给出输入并请求 `Tmi`，中间量由容器补齐。
 
-## 适用场景与验证
+## 范围
 
-适用于派生测量量、特征生成、替代数据来源，以及[多组数据复用同一套计算规则](https://dyuu7.github.io/dataioc/zh/indexed-data/)。
+`dataioc` 只负责在当前进程中同步解析数据依赖，不是工作流调度器。每组数据或 provider 配置应使用一个新容器。缓存、诊断和其他运行限制见[核心概念](https://dyuu7.github.io/dataioc/zh/concepts/)。
 
-- **核心：** Python 3.9+；3.11+ 无运行时依赖，3.9 和 3.10 仅需 `typing-extensions`。
-- **数组：** 可选的 NumPy 1.26 和 2.x 集成。
-- **分发：** 带类型信息的纯 Python wheel。
-
-[CI](https://github.com/dyuu7/dataioc/actions/workflows/ci.yml) 覆盖 Python 3.9 至 3.14、无 NumPy 的核心导入、类型检查、构建和 NumPy 兼容组合。
-
-求值是同步的，已缓存的依赖结果不会自动失效；请在首次访问前配置 provider。详见[缓存行为与边界](https://dyuu7.github.io/dataioc/zh/concepts/)。
-
-## 安装与继续阅读
+## 安装
 
 ```bash
 python -m pip install dataioc
 python -m pip install "dataioc[numpy]"
 ```
 
-- [快速开始](https://dyuu7.github.io/dataioc/zh/quickstart/)：构建第一个派生值。
-- [Provider](https://dyuu7.github.io/dataioc/zh/providers/)：配置替代数据来源。
-- [索引数据](https://dyuu7.github.io/dataioc/zh/indexed-data/)：处理多组数据。
+## 文档
+
+- [快速开始](https://dyuu7.github.io/dataioc/zh/quickstart/)：从局部依赖规则构建结果。
+- [核心概念](https://dyuu7.github.io/dataioc/zh/concepts/)：了解描述符、builder、缓存和失败行为。
+- [Provider](https://dyuu7.github.io/dataioc/zh/providers/)：将一个量绑定到另一种来源或推导方式。
+- [索引数据](https://dyuu7.github.io/dataioc/zh/indexed-data/)：让同一模型复用于多组相关数据。
 - [NumPy](https://dyuu7.github.io/dataioc/zh/numpy/)：使用数组子类。
 - [API](https://dyuu7.github.io/dataioc/zh/api/)：查询接口。
-- [开发](https://dyuu7.github.io/dataioc/zh/maintenance/)：运行检查、参与项目。
 
 ## 贡献者
 
-容器主要实现：[yanang007](https://github.com/yanang007)。构想、独立组件抽取、兼容性工作及维护：[dyuu7](https://github.com/dyuu7)。
+[yanang007](https://github.com/yanang007) 编写了最初的容器实现。[dyuu7](https://github.com/dyuu7) 提出了这套设想，将其工程化以及抽取为 `dataioc`，并负责维护。
 
 [![贡献者](https://contrib.rocks/image?repo=dyuu7/dataioc)](https://github.com/dyuu7/dataioc/graphs/contributors)
 
