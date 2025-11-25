@@ -1,28 +1,32 @@
 # dataioc
 
-**Declarative data dependencies and on-demand computation for Python.**
+**IoC for data in Python: declare what each value needs, resolve the graph on demand, and swap providers without changing downstream computations.**
 
-dataioc lets you define data through reusable derivation rules. Request a result, and the container resolves its dependencies and caches the values it builds. Data providers can be configured independently of the computations that consume them.
+`dataioc` describes a calculation as local derivation rules. Each builder requests only its direct dependencies; the container composes those requests into the graph needed by the result you ask for. There is no separate workflow to maintain.
 
 ## Start here
 
-1. [Quickstart](quickstart.md): define one derived value.
-2. [Core concepts](concepts.md): understand descriptors and builders.
-3. [Providers](providers.md): replace a data source or computation.
-4. [Indexed data](indexed-data.md): reuse one model across data groups.
-5. [NumPy support](numpy.md): use `DataNDArray` with NumPy 1.26 and 2.x.
+1. [Quickstart](quickstart.md): define local rules and request a result.
+2. [Core concepts](concepts.md): understand descriptors, builders, and graph resolution.
+3. [Providers](providers.md): bind a quantity to another source or derivation.
+4. [Indexed data](indexed-data.md): reuse one model across related data groups.
+5. [NumPy support](numpy.md): use `DataNDArray` with the optional NumPy integration.
 
 ## The model
 
 ```text
-declare a derivation
+define local derivations
         |
-request a result
+bind data and providers
         |
-resolve dependencies on demand
+request the result you need
         |
-cache constructed values
+resolve only the required graph
 ```
+
+Each derivation declares only its direct dependencies. The container composes them at runtime, evaluates what the requested result needs, and reuses successful values within that container.
+
+Providers are chosen when the container is assembled, so a quantity can receive another source or derivation without changing the computations that consume it.
 
 The core package has no mandatory numerical dependency. Install the `numpy` extra when using `DataNDArray`.
 

@@ -8,6 +8,9 @@ config:
     primaryTextColor: '#253039'
     primaryBorderColor: '#7d8992'
     lineColor: '#53616a'
+    background: '#ffffff'
+    clusterBkg: '#ffffff'
+    clusterBorder: '#aeb8bf'
   flowchart:
     htmlLabels: false
     curve: linear
@@ -15,10 +18,17 @@ config:
     rankSpacing: 32
     padding: 12
 ---
-flowchart LR
-    Samples --> Features --> Report
-    Provider -.-> Features
+flowchart TB
+    subgraph Default["Without a provider"]
+        direction LR
+        RawReadingsA[RawReadings] --> MeasurementsA[Measurements] --> StatisticsA[Statistics] --> ReportA[Report]
+    end
+    subgraph Replaced["With a provider bound to Measurements"]
+        direction LR
+        RecordedData[Recorded data] -->|"replaces default derivation"| MeasurementsB[Measurements] --> StatisticsB[Statistics] --> ReportB[Report]
+    end
     classDef derived fill:#e1f3ed,stroke:#278668,stroke-width:2px
-    classDef provider fill:#ffffff,stroke:#a26624,stroke-width:2px,stroke-dasharray:5 4
-    class Features derived
-    class Provider provider
+    classDef source fill:#ffffff,stroke:#a26624,stroke-width:2px,stroke-dasharray:5 4
+    class MeasurementsA,MeasurementsB derived
+    class RecordedData source
+    linkStyle 3 stroke:#a26624,stroke-width:2px,color:#a26624

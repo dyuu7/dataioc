@@ -27,30 +27,38 @@ DataT = TypeVar("DataT")
 
 @runtime_checkable
 class SupportsBuild(Protocol):
-    def __build__(self, container: DataIoC) -> Any: ...
+    """Protocol for objects that can build a value from a data container."""
+
+    def __build__(self, container: DataIoC) -> Any:
+        """Build and return a value using ``container``."""
+        ...
 
 
 class DataDescriptor(Generic[DataT]):
-    """用于在DataIoC中唯一标识一个数据和/或构造数据的数据类型描述符
+    """Identify a value in ``DataIoC`` and optionally define how to build it.
 
     Parameters
     ----------
     id
-        数据id
+        Data ID. When omitted, the descriptor is a weak reference to ID 0.
 
     Notes
     -----
-    `DataDescriptor` 需要作为字典的键，因此子类需要保证可哈希与可比较。
-    如果每个成员变量均满足条件，则子类自动满足该条件。
+    A ``DataDescriptor`` is used as a dictionary key, so its subclasses must remain
+    hashable and comparable. A subclass satisfies this requirement automatically
+    when each of its attributes is itself hashable and comparable.
 
-    相同类型的多个不同数据可以通过id来区分，不显式指定时默认为 `0` 。
-    例如三个个同类型的传感器读数可以使用 `Sensor` 、 `Sensor[1]` 和 `Sensor[2]` 来标识，
-    此时他们在 `DataIoC` 中可以映射到不同的数据上。
+    IDs distinguish multiple values of the same type. The default ID is ``0`` when
+    no ID is specified. For example, readings from three sensors of the same type
+    can be identified by ``Sensor``, ``Sensor[1]``, and ``Sensor[2]`` and mapped to
+    different values in ``DataIoC``.
 
     Examples
     --------
-    默认创建的数据类型描述符例如 `Sensor` 具有弱id，用于指示数据类型。
-    在 __build__ 中使用这类描述符提取数据，会自动重映射到具体的id索引。
+    An unindexed descriptor such as ``SensorData`` has a weak ID and identifies a
+    data type. When used to retrieve data inside ``__build__``, it is automatically
+    rebound to the concrete ID currently being built.
+
     >>> from dataioc import DataDescriptor, DataIoC, DataNDArray
     >>>
     >>> class SensorData(DataNDArray):
@@ -59,7 +67,7 @@ class DataDescriptor(Generic[DataT]):
     >>>
     >>> class Sum(DataDescriptor):
     ...     def __build__(self, container: DataIoC):
-    ...         return container[SensorData].sum()  # SensorData 和 Sum 具有相同的id
+    ...         return container[SensorData].sum()  # SensorData follows Sum's ID
     >>>
     >>> container = DataIoC().with_data(
     ...     SensorData([1, 1, 1]), SensorData[1]([2, 2, 2])
@@ -67,12 +75,12 @@ class DataDescriptor(Generic[DataT]):
     >>> print(container[Sum[0]], container[Sum[1]])
     3 6
 
-    手动指定索引的数据类型描述符例如 `Sensor[1]` 具有强id，指示某组具体的数据，
-    在 __build__ 中不会被重新映射。
+    An explicitly indexed descriptor such as ``SensorData[1]`` has a strong ID and
+    identifies one specific data group. It is not rebound inside ``__build__``.
 
     >>> class OffsetSensor0(DataDescriptor):
     ...     def __build__(self, container: DataIoC):
-    ...         base = container[SensorData[0]].sum()  # 显式获取 0 号 SensorData
+    ...         base = container[SensorData[0]].sum()  # Explicitly read ID 0
     ...         return base + container[SensorData]
     >>>
     >>> print(container[OffsetSensor0[0]], container[OffsetSensor0[1]])
@@ -88,6 +96,7 @@ class DataDescriptor(Generic[DataT]):
 
     @property
     def id(self):
+        """The non-negative data ID represented by this descriptor."""
         if self.signed_id < 0:
             return -self.signed_id - 1
         else:
@@ -99,57 +108,95 @@ class DataDescriptor(Generic[DataT]):
 
     @property
     def signed_id(self):
+        """The internal signed ID, where a negative value marks a weak binding."""
         return self._id
 
     @property
     def is_weak_id(self):
+        """Whether this descriptor may inherit the current build ID."""
         return self.signed_id < 0
 
     def __build__(self, container: DataIoC) -> DataT:
+        """Build the value identified by this descriptor.
+
+        Subclasses override this method to request dependencies from ``container``
+        and return the resulting value. The base implementation requires the value
+        to be provided explicitly.
+
+        Parameters
+        ----------
+        container
+            Container used to resolve dependencies.
+
+        Returns
+        -------
+        DataT
+            The constructed value.
+
+        Raises
+        ------
+        NotImplementedError
+            If the subclass does not provide a builder.
+        """
         raise NotImplementedError(f"{self!r} must be provided.")
 
     def index_implicit(self, new_index):
+        """Weakly rebind to ``new_index``, preserving an existing strong ID."""
         return self.index(new_index, weak=True)
 
     def index_explicit(self, new_index):
+        """Explicitly rebind to ``new_index``, overriding any existing ID."""
         return self.index(new_index, weak=False)
 
     def index(self, new_index, weak=True):
-        """将当前数据描述符绑定到新的id索引，以实现关联同类别的不同数据
+        """Bind this descriptor to another ID for related values of the same type.
 
-        例如三个个同类型的传感器读数可以使用：
+        For example, readings from three sensors of the same type can be identified
+        by:
 
-        * Sensor[0]
-        * Sensor[1]
-        * Sensor[2]
-
-        标识
+        * ``Sensor[0]``
+        * ``Sensor[1]``
+        * ``Sensor[2]``
 
         Parameters
         ----------
         new_index
-            新的数据索引
+            New data ID.
         weak
-            是否为弱绑定，弱绑定下，如果目标为强索引，则索引失效
+            Whether the rebinding is weak. A weak rebinding has no effect when this
+            descriptor already has a strong ID.
 
         Returns
         -------
-        新的索引id的数据类型
+        DataDescriptor
+            This descriptor if a weak rebinding is blocked by a strong ID;
+            otherwise, a copy bound to ``new_index``.
         """
         ret = self
         if not weak or self.is_weak_id:
-            # 如果为强索引，或者当前为弱索引，则可以覆盖，重映射到新索引位置下的数据
+            # Explicit rebinding, or rebinding a weak ID, may select the new ID.
             ret = copy.copy(ret)
             ret.id = new_index
 
         return ret
 
     def __getitem__(self, index) -> DataDescriptor[DataT]:
-        """直接强制绑定为新的id索引
+        """Return a descriptor explicitly rebound to ``index``.
+
+        Parameters
+        ----------
+        index
+            New data ID.
+
+        Returns
+        -------
+        DataDescriptor
+            A copy bound to ``index``.
 
         Notes
         -----
-        内部代码应优先使用 `index_implicit` 以支持弱id的自动重绑定。
+        Internal code should prefer ``index_implicit`` so weak IDs can inherit the
+        current build ID automatically.
         """
         return self.index_explicit(index)
 
@@ -175,6 +222,7 @@ class DataDescriptor(Generic[DataT]):
 
     @property
     def keys(self):
+        """Attribute names that participate in equality and hashing."""
         keys = []
         for c in reversed(inspect.getmro(type(self))):
             keys.extend(getattr(c, "__slots__", []))
@@ -182,12 +230,13 @@ class DataDescriptor(Generic[DataT]):
 
         keys = set(keys)
         keys.remove("_id")
-        keys.add("id")  # 保证 id 值恒为正
+        keys.add("id")  # Keep the public ID non-negative.
 
         return keys
 
     @property
     def params(self):
+        """Constructor parameters reconstructed from the descriptor state."""
         return {k.strip("_"): getattr(self, k) for k in sorted(self.keys)}
 
     def __repr__(self):
@@ -204,16 +253,19 @@ class DataDescriptor(Generic[DataT]):
 
 
 class IndexedDataTypeDescriptor(DataDescriptor[DataT]):
+    """Bind an indexed data type to a data ID."""
+
     __slots__ = ["_dtype"]
 
     @classmethod
     def of(cls, dtype, id=DataDescriptor.DefaultWeakID):
+        """Create the appropriate descriptor for ``dtype`` and ``id``."""
         if isinstance(dtype, IndexedDataMeta):
             return type(dtype).__getitem__(dtype, id)
         elif issubclass(dtype, DataDescriptor):
             return dtype(id=id)
         else:
-            # 常规类型，不允许进行索引，强制绑定为默认索引
+            # Ordinary types cannot be indexed and always use the default ID.
             return cls(dtype, id=DataDescriptor.DefaultID)
 
     def __init__(self, dtype: type, *args, **kwargs) -> None:
@@ -222,6 +274,7 @@ class IndexedDataTypeDescriptor(DataDescriptor[DataT]):
 
     @property
     def dtype(self):
+        """The data type bound by this descriptor."""
         return self._dtype
 
     def __build__(self, container: DataIoC) -> DataT:
@@ -232,6 +285,7 @@ class IndexedDataTypeDescriptor(DataDescriptor[DataT]):
         return ret
 
     def __call__(self, *args, **kwargs):
+        """Construct a value and associate it with this descriptor."""
         return DescribedData(self, self.dtype(*args, **kwargs))
 
     def __repr__(self):
@@ -240,21 +294,26 @@ class IndexedDataTypeDescriptor(DataDescriptor[DataT]):
 
 
 class DescribedData:
+    """Pair a value with the descriptor under which it should be registered."""
+
     def __init__(self, desc: DataDescriptor[DataT], data: DataT):
         self.desc = desc
         self.data = data
 
 
 class IndexedDataMeta(type):
-    """指示一个类型为可索引类型，支持在DataIoC容器中绑定多组相关数据，并通过索引来进行区分
+    """Make a data type indexable so ``DataIoC`` can bind related data groups.
 
     Notes
     -----
-    派生类可以通过自己定义 `__class_index__` 方法来自定义索引行为
+    A derived class can define ``__class_index__`` to customize its indexing
+    behavior.
 
-    派生类可以通过继承 `UniqueData` 来指示该类型唯一，不需要索引
+    A derived class can inherit ``UniqueData`` to indicate that the type is unique
+    and does not require indexing.
 
-    所有非 `IndexedData` 子类的类型均视为唯一类型，不会被索引
+    Every type that is not an ``IndexedData`` subclass is treated as unique and is
+    not indexed.
     """
 
     def __getitem__(self, id=DataDescriptor.DefaultWeakID, *args):
@@ -269,27 +328,36 @@ class IndexedDataMeta(type):
 
 
 class IndexedData(metaclass=IndexedDataMeta):
+    """Marker base class for data types that can have one value per ID."""
+
     pass
 
 
 class UniqueData:
+    """Make an indexed data type share one value across all build IDs."""
+
     @classmethod
     def __class_index__(cls, id, *args):
-        # 强制绑定为默认索引来保证所有隐式访问下会得到同一组数据
+        # Bind to the default ID so every implicit access resolves the same value.
         return IndexedDataTypeDescriptor(cls, *args, id=DataDescriptor.DefaultID)
 
 
 class DataIoC:
+    """Resolve data dependencies on demand and cache constructed values."""
+
     def __init__(self, allow_implicit_registering=True, record_all=False):
-        """数据IoC容器
+        """Initialize a data IoC container.
 
         Parameters
         ----------
         allow_implicit_registering
-            允许隐式注册Data，若为False则只能获取/构建已注册的Data
+            Allow a requested target's own builder to be registered on first
+            access. If false, only explicitly registered data and builders can be
+            retrieved or built.
         record_all
-            是否保存所有IoC访问记录。默认只保留当次访问依赖用于调试输出。
-            为True时保留完整访问树，可能导致额外开销。
+            Retain all container access records. By default, only dependencies from
+            the current access are retained for diagnostic output. If true, the
+            complete access tree is retained and may add overhead.
         """
         self._collection: dict[Union[DataDescriptor, type], Any] = {}
         self._lazy_collection: dict[
@@ -301,6 +369,19 @@ class DataIoC:
         self._logger = _DataIoCAccessLogger(key=self)
 
     def with_data(self, *data: Any) -> Self:
+        """Register existing values and return this container.
+
+        Parameters
+        ----------
+        *data
+            Values to register by their types. Values created through an indexed
+            type, such as ``Sensor[1](...)``, retain their descriptors.
+
+        Returns
+        -------
+        DataIoC
+            This container, allowing chained registration calls.
+        """
         for d in data:
             if isinstance(d, DescribedData):
                 self[d.desc] = d.data
@@ -314,6 +395,32 @@ class DataIoC:
         data_type: Union[DataT, type[DataT], DataDescriptor[DataT]],
         data: Optional[DataT] = None,
     ) -> Self:
+        """Register existing data or a target's own lazy builder.
+
+        Passing a type or descriptor without ``data`` registers the builder defined
+        by that target. Passing an existing value as ``data_type`` registers it by
+        type. Passing both a key and a non-``None`` value registers that value under
+        the key.
+
+        Parameters
+        ----------
+        data_type
+            Existing value to register, or the type or descriptor used as a key.
+        data
+            Existing non-``None`` value to register under ``data_type``. Because
+            ``None`` selects builder registration, assign through ``container[key]``
+            to store an explicit ``None`` value.
+
+        Returns
+        -------
+        DataIoC
+            This container, allowing chained registration calls.
+
+        Raises
+        ------
+        TypeError
+            If no builder can be found or the supplied key is invalid.
+        """
         data_type = _descriptor_instance(data_type)
         if data is None:
             if isinstance(data_type, DataDescriptor) or isinstance(data_type, type):
@@ -335,6 +442,29 @@ class DataIoC:
         data_type: Union[type[DataT], DataDescriptor[DataT]],
         provider: Union[SupportsBuild, Callable],
     ) -> Self:
+        """Register an alternative lazy builder for a data key.
+
+        Registering another provider for the same key replaces the builder used by
+        future uncached requests. Existing cached values are retained.
+
+        Parameters
+        ----------
+        data_type
+            Type or descriptor whose value the provider builds.
+        provider
+            Callable accepting a container, or an object that defines
+            ``__build__``.
+
+        Returns
+        -------
+        DataIoC
+            This container, allowing chained registration calls.
+
+        Raises
+        ------
+        TypeError
+            If ``provider`` is neither callable nor an object with ``__build__``.
+        """
         data_type = _descriptor_instance(data_type)
         initiator = None
         if isinstance(data_type, DataDescriptor):
@@ -351,6 +481,7 @@ class DataIoC:
 
     @property
     def logger(self):
+        """The dependency access logger used for diagnostics."""
         return self._logger
 
     @overload
@@ -363,6 +494,29 @@ class DataIoC:
     def __getitem__(self, dtype: type[DataT]) -> DataT: ...
 
     def __getitem__(self, dtype: Any) -> Any:
+        """Resolve and return the value identified by ``dtype``.
+
+        A cached value is returned immediately. Otherwise, the registered or
+        implicit builder is called and a successful result, including ``None``, is
+        cached under the requested key.
+
+        Parameters
+        ----------
+        dtype
+            Data type or descriptor to resolve.
+
+        Returns
+        -------
+        Any
+            The registered or constructed value.
+
+        Raises
+        ------
+        RuntimeError
+            If implicit registration is disabled and no builder is registered.
+        TypeError
+            If no suitable builder exists.
+        """
         dtype = _descriptor_instance(dtype)
         ret: Any = None
         with self._logger.add(dtype):
@@ -405,20 +559,37 @@ class DataIoC:
     def __setitem__(
         self, data_type: Union[type[DataT], DataDescriptor[DataT]], data: DataT
     ):
+        """Store ``data`` under a type or descriptor key.
+
+        Assigning to an indexed ID 0 key also makes the value available through an
+        unindexed class lookup. Assigning to a class creates the corresponding ID 0
+        mapping as well.
+        """
         data_type = _descriptor_instance(data_type)
         self._collection[data_type] = data
         if isinstance(data_type, IndexedDataTypeDescriptor) and data_type.id == 0:
             self._collection[data_type.dtype] = data
         if isinstance(data_type, type):
-            # 对于直接用类名绑定，则默认同时绑定对应的0号数据
+            # A class binding also supplies the corresponding ID 0 value.
             self._collection[IndexedDataTypeDescriptor.of(data_type)] = data
 
     def find_builder(self, dtype: Union[type[DataT], DataDescriptor[DataT]]):
-        """查找构造器
+        """Find the registered builder for a type or descriptor.
 
-        * 直接以类别指定的构造器：适用于所有id下的 IndexedDataTypeDescriptor ，可以通用
+        A builder registered by class can be reused by
+        ``IndexedDataTypeDescriptor`` instances at every ID. A builder registered
+        for a specific ``DataDescriptor`` applies only to that descriptor.
 
-        * 以特定 DataDescriptor 指定的构造器：只适用于特定的 DataDescriptor
+        Parameters
+        ----------
+        dtype
+            Type or descriptor whose builder should be found.
+
+        Returns
+        -------
+        Callable or None
+            The matching builder, with indexed context bound when necessary, or
+            ``None`` if no builder is registered.
         """
         # Class reads target ID 0; class registrations remain fallbacks for all IDs.
         if isinstance(dtype, IndexedDataMeta):
@@ -427,7 +598,7 @@ class DataIoC:
         builder = self._lazy_collection.get(dtype, None)
         if builder is None:
             if isinstance(dtype, IndexedDataTypeDescriptor):
-                # 如果是带索引的类型，则进一步搜索该类型的通用构造器
+                # For an indexed type, also search for its type-wide builder.
                 builder = self._lazy_collection.get(dtype.dtype, None)
                 if builder is not None:
                     builder = _bind_builder_context(initiator=dtype, builder=builder)
@@ -439,13 +610,25 @@ class DataIoC:
 
 
 class IndexedDataIoC(DataIoC):
+    """Container view that rebinds weak dependencies to the active build ID."""
+
     def __init__(self, base_container: DataIoC, initiator=None):
+        """Initialize an indexed view over ``base_container``.
+
+        Parameters
+        ----------
+        base_container
+            Container that stores and resolves the underlying values.
+        initiator
+            Descriptor whose signed ID supplies the current build context.
+        """
         super().__init__()
         self._base_container = base_container
         self._initiator = initiator
 
     @property
     def id(self):
+        """The signed ID used when implicitly rebinding dependencies."""
         if self._initiator is None:
             return DataDescriptor.DefaultWeakID
         else:
@@ -464,6 +647,7 @@ class IndexedDataIoC(DataIoC):
     def __getitem__(self, dtype: type[DataT]) -> DataT: ...
 
     def __getitem__(self, dtype: Any) -> Any:
+        """Resolve ``dtype`` after applying the current indexed context."""
         item = dtype
         if isinstance(item, type):
             item = IndexedDataTypeDescriptor.of(item, id=self.id)
@@ -603,12 +787,12 @@ class _DataIoCAccessLogger:
 
     @property
     def at_level0(self):
-        """判断是否在某个子访问树的根节点"""
+        """Whether the current node is the root of a child access tree."""
         return self.current.parent is self.root
 
     @property
     def at_root(self):
-        """判断是否在根节点"""
+        """Whether the logger is positioned at the root node."""
         return self.current is self.root
 
     @contextlib.contextmanager
@@ -685,9 +869,8 @@ def _extract_builder(dtype: Union[DataDescriptor, SupportsBuild, Callable]):
     if isinstance(dtype, SupportsBuild):
         builder = dtype.__build__
     elif callable(dtype):
-        # 类型的构造函数
-        # 或者直接的构造器函数
-        # TODO: 添加校验，验证可以用于DataIoC
+        # Either a type constructor or a direct builder function.
+        # TODO: Validate that the callable can be used by DataIoC.
         builder = dtype
     else:
         builder = None

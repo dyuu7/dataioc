@@ -8,6 +8,8 @@
         - with_data
         - add
         - add_provider
+        - __getitem__
+        - __setitem__
         - find_builder
         - logger
       show_root_heading: true

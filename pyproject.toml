@@ -1,14 +1,21 @@
 [project]
 name = "dataioc"
 version = "0.1.0"
-description = "Declarative data dependencies and on-demand computation for Python."
+description = "Declarative data dependency graphs for Python, resolved on demand with provider overrides."
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "yanang007" }, { name = "dyuu7" }]
 maintainers = [{ name = "dyuu7" }]
-keywords = ["IoC", "data", "dependency injection", "lazy", "providers"]
+keywords = [
+  "IoC",
+  "data dependencies",
+  "dependency graph",
+  "dependency injection",
+  "lazy evaluation",
+  "providers",
+]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Operating System :: OS Independent",
