@@ -83,8 +83,15 @@ python -m pip install "dataioc[numpy]"
 
 ## Contributors
 
-[yanang007](https://github.com/yanang007) wrote the original container. [dyuu7](https://github.com/dyuu7) shaped the design, extracted it into `dataioc`, and maintains the project.
+[yanang007](https://github.com/yanang007) wrote the original container implementation. [dyuu7](https://github.com/dyuu7) proposed the concept, handled the engineering work and extraction into `dataioc`, and maintains the project.
 
-[![Contributors](https://contrib.rocks/image?repo=dyuu7/dataioc)](https://github.com/dyuu7/dataioc/graphs/contributors)
+<a href="https://github.com/yanang007">
+  <img src="https://wsrv.nl/?url=avatars.githubusercontent.com/u/8695716&amp;w=128&amp;h=128&amp;fit=cover&amp;mask=circle&amp;output=png"
+       width="64" height="64" alt="yanang007" title="yanang007" />
+</a>
+<a href="https://github.com/dyuu7">
+  <img src="https://wsrv.nl/?url=avatars.githubusercontent.com/u/49279922&amp;w=128&amp;h=128&amp;fit=cover&amp;mask=circle&amp;output=png"
+       width="64" height="64" alt="dyuu7" title="dyuu7" />
+</a>
 
 Licensed under the [MIT License](https://github.com/dyuu7/dataioc/blob/main/LICENSE).
