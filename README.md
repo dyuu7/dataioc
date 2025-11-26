@@ -59,7 +59,7 @@ assert recorded[Report] == "mean=3, peak=6"
 
 If both the inputs and the calculation path are fixed, ordinary function calls are simpler. Use `dataioc` when the relationships stay stable but a value may come from live measurements, recorded data, a simulation, or an estimate.
 
-`dataioc` grew out of [deinterf](https://github.com/dyuu7/deinterf). In its [direction-cosine example](https://github.com/dyuu7/deinterf/blob/main/examples/replace_direction_cosine_source_tmi.py), the same compensation terms work whether direction cosines are derived from magnetic-vector measurements or supplied by an INS estimate. [dvmss](https://github.com/dyuu7/dvmss) applies the pattern to simulation: supply the inputs, request `Tmi`, and let the container resolve the intermediate quantities.
+`dataioc` grew out of [deinterf](https://github.com/dyuu7/deinterf). In its [direction-cosine example](https://github.com/dyuu7/deinterf/blob/main/examples/replace_direction_cosine_source_tmi.py), the same compensation terms work whether direction cosines are derived from magnetic-vector measurements or supplied by an INS estimate. [aeromag-synth](https://github.com/dyuu7/aeromag-synth) applies the pattern to simulation: supply the inputs, request `Tmi`, and let the container resolve the intermediate quantities.
 
 ## Scope
 

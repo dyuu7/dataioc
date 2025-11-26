@@ -59,7 +59,7 @@ assert recorded[Report] == "mean=3, peak=6"
 
 输入和计算过程都固定时，直接调用函数更简单。`dataioc` 适合关系稳定、数据来源会变的模型，例如同一个量在不同场景下来自实测、历史记录、仿真或估计。
 
-`dataioc` 最初来自 [deinterf](https://github.com/dyuu7/deinterf)：[方向余弦既可以根据磁矢量测量得到，也可以直接采用惯导估计](https://github.com/dyuu7/deinterf/blob/main/examples/replace_direction_cosine_source_tmi.py)，后面的补偿计算不用跟着改。[dvmss](https://github.com/dyuu7/dvmss) 也沿用这种组织方式：应用给出输入并请求 `Tmi`，中间量由容器补齐。
+`dataioc` 最初来自 [deinterf](https://github.com/dyuu7/deinterf)：[方向余弦既可以根据磁矢量测量得到，也可以直接采用惯导估计](https://github.com/dyuu7/deinterf/blob/main/examples/replace_direction_cosine_source_tmi.py)，后面的补偿计算不用跟着改。[aeromag-synth](https://github.com/dyuu7/aeromag-synth) 也沿用这种组织方式：应用给出输入并请求 `Tmi`，中间量由容器补齐。
 
 ## 范围
 
