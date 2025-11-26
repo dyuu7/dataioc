@@ -1,5 +1,5 @@
 site_name: dataioc
-site_description: Data IoC for Python with local dependency rules and replaceable providers.
+site_description: Declarative data dependency graphs for Python, resolved on demand with provider overrides.
 site_url: https://dyuu7.github.io/dataioc/
 repo_url: https://github.com/dyuu7/dataioc
 repo_name: dyuu7/dataioc

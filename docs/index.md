@@ -1,37 +1,47 @@
 # dataioc
 
-**IoC for data in Python: declare what each value needs, resolve the graph on demand, and swap providers without changing downstream computations.**
+**Declarative data dependency graphs for Python.**
 
-`dataioc` describes a calculation as local derivation rules. Each builder requests only its direct dependencies; the container composes those requests into the graph needed by the result you ask for. There is no separate workflow to maintain.
+Each `DataDescriptor` names a quantity and defines how it is derived from its direct dependencies. `DataIoC` composes these local rules into a graph, then resolves and caches only the subgraph required by the requested result. A provider binding replaces a quantity's source or derivation without changing downstream calculations.
 
-## Start here
+## Start with the solar electricity model
 
-1. [Quickstart](quickstart.md): define local rules and request a result.
-2. [Core concepts](concepts.md): understand descriptors, builders, and graph resolution.
-3. [Providers](providers.md): bind a quantity to another source or derivation.
-4. [Indexed data](indexed-data.md): reuse one model across related data groups.
-5. [NumPy support](numpy.md): use `DataNDArray` with the optional NumPy integration.
+These guides continue the README's solar example: estimate solar power from irradiance, then calculate the building's grid energy and electricity cost. Planning uses a formula to estimate power, while operational analysis uses measured power. Both sources use the same grid energy and cost formulas.
 
-## The model
+| Quantity | Meaning | Scalar model unit |
+| --- | --- | --- |
+| `Irradiance` | Solar irradiance | kW/m² |
+| `SolarPower` | Solar power output | kW |
+| `GridEnergy` | Purchased electricity | kWh |
+| `ElectricityCost` | Cost of purchased electricity | CNY |
 
-```text
-define local derivations
-        |
-bind data and providers
-        |
-request the result you need
-        |
-resolve only the required graph
+![Solar power is estimated from irradiance or supplied as a measurement by a provider, with the same downstream grid energy and cost formulas.](https://raw.githubusercontent.com/dyuu7/dataioc/main/docs/assets/data-flow.png)
+
+[Quickstart](quickstart.md) reproduces the README's costs of 1.4 CNY and 1.8 CNY. Subsequent chapters extend this model with alternative derivations, multiple sensors, and arrays of hourly values. Each guide is self-contained; execute the code blocks within a page in order.
+
+## Reading path
+
+1. [Quickstart](quickstart.md): register irradiance data, define formulas, request electricity cost, and substitute measured power.
+2. [Core concepts](concepts.md): understand quantities, builders, dependency resolution, caching, and failure behavior.
+3. [Providers](providers.md): supply measured solar power or use a derivation that accounts for losses.
+4. [Indexed data](indexed-data.md): distinguish multiple irradiance sensors, reuse calculation rules, and share a tariff.
+5. [NumPy support](numpy.md): extend individual readings to hourly arrays and calculate the cost for the full period.
+6. [API reference](api.md): look up the interfaces used by the model and their detailed contracts.
+
+Providers select sources or derivation methods for the same physical quantity, while indices distinguish data from multiple acquisition channels. These mechanisms can be combined, for example, to configure a separate calibration method for each sensor.
+
+A container represents a fixed set of inputs and provider bindings and can contain multiple indexed data groups. Computed results are cached; use a new container to recompute results after changes to inputs or bindings. See [Core concepts](concepts.md) for details.
+
+## Install
+
+```bash
+python -m pip install dataioc
+python -m pip install "dataioc[numpy]"
 ```
-
-Each derivation declares only its direct dependencies. The container composes them at runtime, evaluates what the requested result needs, and reuses successful values within that container.
-
-Providers are chosen when the container is assembled, so a quantity can receive another source or derivation without changing the computations that consume it.
 
 The core package has no mandatory numerical dependency. Install the `numpy` extra when using `DataNDArray`.
 
-## Links
+## Project links
 
-- [API reference](api.md)
-- [GitHub repository](https://github.com/dyuu7/dataioc)
+- [GitHub repository and README](https://github.com/dyuu7/dataioc)
 - [Contributors](https://github.com/dyuu7/dataioc#contributors)

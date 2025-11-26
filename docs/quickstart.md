@@ -1,65 +1,78 @@
 # Quickstart
 
-The smallest useful model has two parts: values that already exist, and local rules for deriving other values. The container connects those rules when a result is requested.
+This guide develops the README's solar electricity model in four steps: registering data, defining formulas, requesting results, and replacing a source. Each guide is self-contained; execute the code blocks within a page in order.
 
-## 1. Register an existing value
+The model calculates grid electricity cost over one hour, assuming constant power and excluding battery storage and revenue from exported electricity. The panels cover 10 m² at 20% efficiency; the building's power demand is 3 kW, and electricity costs 1 CNY/kWh.
 
-Use `with_data` or `add` for a value that is already available.
+## 1. Register irradiance data
+
+`Irradiance` identifies solar irradiance in kW/m². Register an existing value under this key with `add`:
 
 ```python
 from dataioc import DataDescriptor, DataIoC
 
 
-class RawReadings(DataDescriptor[tuple[int, ...]]):
+class Irradiance(DataDescriptor[float]):
     pass
 
 
-container = DataIoC().add(RawReadings, (10, 20, 60))
+data = DataIoC().add(Irradiance, 0.8)  # kW/m²
 ```
 
-## 2. Define local derivations
+The `float` in `DataDescriptor[float]` specifies the quantity's value type. The README omits type annotations; both forms have the same runtime behavior. Data objects with their own types or indices can also be registered with `with_data`; see [Indexed data](indexed-data.md).
 
-Each descriptor requests only the values it needs. There is no global execution order to write down.
+## 2. Define the formulas
+
+- Solar power (kW) = efficiency × panel area (m²) × irradiance (kW/m²).
+- Grid energy (kWh) = max(load power − solar power, 0) × duration (h).
+- Electricity cost (CNY) = grid energy × price (CNY/kWh).
+
+Each derived quantity's `__build__` method requests only its direct dependencies:
 
 ```python
-class Measurements(DataDescriptor[tuple[float, ...]]):
-    def __build__(self, container: DataIoC) -> tuple[float, ...]:
-        return tuple(value / 10 for value in container[RawReadings])
+class SolarPower(DataDescriptor[float]):
+    def __build__(self, data: DataIoC) -> float:
+        efficiency = 0.2
+        panel_area = 10.0  # m²
+        return efficiency * panel_area * data[Irradiance]  # kW
 
 
-class Statistics(DataDescriptor[tuple[float, float]]):
-    def __build__(self, container: DataIoC) -> tuple[float, float]:
-        values = container[Measurements]
-        return sum(values) / len(values), max(values)
+class GridEnergy(DataDescriptor[float]):
+    def __build__(self, data: DataIoC) -> float:
+        load_power = 3.0  # kW
+        duration = 1.0  # h
+        return max(load_power - data[SolarPower], 0.0) * duration  # kWh
 
 
-class Report(DataDescriptor[str]):
-    def __build__(self, container: DataIoC) -> str:
-        mean, peak = container[Statistics]
-        return f"mean={mean:g}, peak={peak:g}"
+class ElectricityCost(DataDescriptor[float]):
+    def __build__(self, data: DataIoC) -> float:
+        price = 1.0  # CNY/kWh
+        return data[GridEnergy] * price  # CNY
 ```
 
-## 3. Request the result
+## 3. Request electricity cost
 
-Requesting `Report` causes the container to resolve `Report -> Statistics -> Measurements -> RawReadings`. Each successful value is cached in that container.
+A request for `ElectricityCost` resolves dependencies along `ElectricityCost → GridEnergy → SolarPower → Irradiance` and computes the required results. Each successfully built value is cached in the current container.
 
 ```python
-assert container[Report] == "mean=3, peak=6"
-assert container[Report] == "mean=3, peak=6"  # Reuses the cached result.
+assert round(data[ElectricityCost], 2) == 1.40
+assert round(data[SolarPower], 2) == 1.60
+assert round(data[GridEnergy], 2) == 1.40
 ```
 
-## 4. Replace one derivation
+At an irradiance of 0.8 kW/m², solar power is 1.6 kW, grid energy is 1.4 kWh, and the cost is 1.4 CNY. Subsequent requests for `SolarPower` and `GridEnergy` return the cached intermediate results.
 
-A provider changes how a quantity is obtained while its consumers keep requesting the same key.
+## 4. Use measured power
+
+If measured solar power is 1.2 kW, bind a provider to `SolarPower` in a new container:
 
 ```python
-recorded = DataIoC().add_provider(
-    Measurements,
-    lambda _: (2.0, 4.0, 12.0),
-)
-assert recorded[Report] == "mean=6, peak=12"
+measured = DataIoC().add_provider(SolarPower, lambda _: 1.2)  # kW
+assert round(measured[ElectricityCost], 2) == 1.80
 ```
 
-`recorded` does not need `RawReadings`, because its provider supplies ready-to-use `Measurements`. `Statistics` and `Report` are unchanged. For a provider with its own dependencies or state, define `__build__` on a provider object; see [Providers](providers.md).
+`measured` requires no `Irradiance`, since the provider supplies solar power directly. The formulas for `GridEnergy` and `ElectricityCost` remain unchanged, giving 1.8 kWh of grid energy at a cost of 1.8 CNY.
 
-Continue with [Core concepts](concepts.md) or [Providers](providers.md).
+A container represents a fixed set of inputs and provider bindings and can manage multiple sensors or datasets through indices. Changes to inputs or bindings do not automatically invalidate existing results; use a new container to recompute results after such changes.
+
+Continue with [Core concepts](concepts.md) for graph resolution and caching, or [Providers](providers.md) to configure an alternative derivation of solar power with its own dependencies.

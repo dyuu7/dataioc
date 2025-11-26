@@ -1,6 +1,12 @@
 # Indexed data
 
-Use `IndexedData` when one type represents several related data groups. Dependencies inherit the current group by default, so the same `RawReadings -> Measurements -> Statistics -> Report` model can be applied to several sensors or experiments.
+Multiple sensors of the same type may measure the same physical quantity. Indices distinguish these data instances so that the same calculation rules can be applied to each acquisition channel. This page applies the solar model from [Quickstart](quickstart.md) to two irradiance sensors and compares the electricity costs associated with their readings. Panel area, efficiency, load power, duration, and price are identical.
+
+## Register multiple acquisition channels
+
+For the scalar descriptor in Quickstart, values can be registered separately with `add(Irradiance[0], 0.8)` and `add(Irradiance[1], 0.6)`. When existing data is organized into objects, `IndexedData` supports registration by object type and index through `with_data`.
+
+Here `Irradiance` is defined as a data object with a `value` field, which `SolarPower` reads. The grid energy and cost formulas are the same as in the README:
 
 ```python
 from dataclasses import dataclass
@@ -9,67 +15,72 @@ from dataioc import DataDescriptor, DataIoC, IndexedData, UniqueData
 
 
 @dataclass
-class RawReadings(IndexedData):
-    values: tuple[int, ...]
+class Irradiance(IndexedData):
+    value: float  # kW/m²
 
 
-class Measurements(DataDescriptor[tuple[float, ...]]):
-    def __build__(self, container: DataIoC) -> tuple[float, ...]:
-        return tuple(value / 10 for value in container[RawReadings].values)
+class SolarPower(DataDescriptor[float]):
+    def __build__(self, data: DataIoC) -> float:
+        efficiency = 0.2
+        panel_area = 10.0  # m²
+        return efficiency * panel_area * data[Irradiance].value  # kW
 
 
-class Statistics(DataDescriptor[tuple[float, float]]):
-    def __build__(self, container: DataIoC) -> tuple[float, float]:
-        values = container[Measurements]
-        return sum(values) / len(values), max(values)
+class GridEnergy(DataDescriptor[float]):
+    def __build__(self, data: DataIoC) -> float:
+        load_power = 3.0  # kW
+        duration = 1.0  # h
+        return max(load_power - data[SolarPower], 0.0) * duration  # kWh
 
 
-class Report(DataDescriptor[str]):
-    def __build__(self, container: DataIoC) -> str:
-        mean, peak = container[Statistics]
-        return f"mean={mean:g}, peak={peak:g}"
+class ElectricityCost(DataDescriptor[float]):
+    def __build__(self, data: DataIoC) -> float:
+        price = 1.0  # CNY/kWh
+        return data[GridEnergy] * price  # CNY
 
 
-container = DataIoC().with_data(
-    RawReadings((10, 20, 60)),
-    RawReadings[1]((20, 40, 120)),
+data = DataIoC().with_data(
+    Irradiance(0.8),
+    Irradiance[1](0.6),
 )
 ```
 
-Here IDs 0 and 1 represent readings from two sensors. An unindexed dependency is weak inside a build: it inherits the ID of the descriptor currently being built. Every layer therefore follows the same sensor without repeating the ID:
+IDs 0 and 1 represent two sensors. A descriptor dependency without an explicit index is a weak reference during a build and inherits the current target's ID. A request for `ElectricityCost[1]` therefore resolves `GridEnergy[1]`, `SolarPower[1]`, and `Irradiance[1]`, without specifying the sensor in every calculation rule.
 
 ```python
-assert container[Report[0]] == "mean=3, peak=6"
-assert container[Report[1]] == "mean=6, peak=12"
-assert container[RawReadings] is container[RawReadings[0]]
+assert round(data[ElectricityCost[0]], 2) == 1.40
+assert round(data[ElectricityCost[1]], 2) == 1.80
+assert data[Irradiance] is data[Irradiance[0]]
 ```
 
-Outside a build, an unindexed `RawReadings` refers to ID 0. Values created as `RawReadings[1](...)` are wrapped with their descriptor, and `with_data` registers the underlying value under that key.
+The two readings produce solar power estimates of 1.6 kW and 1.2 kW, with electricity costs of 1.4 CNY and 1.8 CNY, respectively. These model results are cached separately for each acquisition channel.
+
+Outside a build, an unindexed `Irradiance` refers to ID 0. Values created with `Irradiance[1](...)` carry the corresponding descriptor, and `with_data` registers them under that key.
 
 ## Refer to one group explicitly
 
-Use an indexed dependency when one part of a calculation must stay fixed. This derived value compares the current group's measurements with group 0:
+A comparison between sensor results can use a fixed baseline channel. This derived quantity calculates the difference in electricity cost between the current channel and channel 0, in CNY:
 
 ```python
-class DifferenceFromBaseline(DataDescriptor[tuple[float, ...]]):
-    def __build__(self, container: DataIoC) -> tuple[float, ...]:
-        baseline = container[Measurements[0]]
-        current = container[Measurements]
-        return tuple(value - base for value, base in zip(current, baseline))
+class CostDifferenceFromBaseline(DataDescriptor[float]):
+    def __build__(self, data: DataIoC) -> float:
+        baseline = data[ElectricityCost[0]]
+        current = data[ElectricityCost]
+        return current - baseline
 
 
-assert container[DifferenceFromBaseline[0]] == (0.0, 0.0, 0.0)
-assert container[DifferenceFromBaseline[1]] == (1.0, 2.0, 6.0)
+assert round(data[CostDifferenceFromBaseline[0]], 2) == 0.00
+assert round(data[CostDifferenceFromBaseline[1]], 2) == 0.40
 ```
 
-`Measurements[0]` is a strong reference and always selects group 0. The unindexed `Measurements` remains weak and follows the ID of `DifferenceFromBaseline`.
+`ElectricityCost[0]` is a strong reference and always selects group 0. The unindexed `ElectricityCost` remains weak and inherits the ID of `CostDifferenceFromBaseline`. The cost for index 1 is 0.4 CNY higher than the baseline.
 
 ## Rebind a descriptor
 
 `index_implicit(id)` preserves an existing strong ID. Subscription explicitly rebinds the descriptor and leaves the original unchanged:
 
 ```python
-original = Report[1]
+original = ElectricityCost[1]
 assert original.index_implicit(2) is original
 assert original[2].id == 2
 assert original.id == 1
@@ -77,18 +88,33 @@ assert original.id == 1
 
 ## Share data across groups
 
-Ordinary Python types are shared across build IDs. Mix `UniqueData` into an indexed class when it should also have one shared value:
+Ordinary Python types are shared across build IDs. Mix `UniqueData` into an indexed class when it should also have one shared value. For example, the price previously fixed in the cost formula can be represented by a shared `Tariff`:
 
 ```python
 @dataclass
-class Calibration(IndexedData, UniqueData):
-    scale: float
+class Tariff(IndexedData, UniqueData):
+    price: float  # CNY/kWh
 
 
-container.with_data(Calibration(0.1))
-assert container[Calibration[1]] is container[Calibration[2]]
+def cost_with_tariff(data: DataIoC) -> float:
+    return data[GridEnergy] * data[Tariff].price
+
+
+shared = DataIoC().with_data(
+    Irradiance(0.8),
+    Irradiance[1](0.6),
+    Tariff(1.0),
+)
+shared.add_provider(ElectricityCost[0], cost_with_tariff)
+shared.add_provider(ElectricityCost[1], cost_with_tariff)
+
+assert shared[Tariff[0]] is shared[Tariff[1]]
+assert round(shared[ElectricityCost[0]], 2) == 1.40
+assert round(shared[ElectricityCost[1]], 2) == 1.80
 ```
 
-Successfully built values are cached per key. Provider changes do not invalidate cached dependents; see [Container lifetime and cache](concepts.md#container-lifetime-and-cache).
+Each acquisition channel uses its own `GridEnergy` and accesses the same tariff object. All inputs and provider bindings are configured in a new container before any results are requested.
 
-See [API](api.md) for `IndexedData`, `UniqueData`, and the indexed container.
+Providers select sources or derivation methods, while indices distinguish data groups. These mechanisms can be combined, for example, to configure different calibration methods for different sensors; see [Providers](providers.md). Changes to inputs or bindings do not automatically invalidate existing cached results; see [Container lifetime and cache](concepts.md#container-lifetime-and-cache).
+
+Continue with [NumPy support](numpy.md) to extend each sensor's single irradiance reading to an array of hourly values. See [API](api.md) for interface details.

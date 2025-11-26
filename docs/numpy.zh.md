@@ -1,47 +1,84 @@
 # NumPy 支持
 
+本页将[索引数据](indexed-data.zh.md)中的单次日照读数扩展为逐小时数组，继续使用 `Irradiance → SolarPower → GridEnergy → ElectricityCost` 模型，并增加时段总费用 `TotalElectricityCost`。
+
 安装可选 extra：
 
 ```bash
 python -m pip install "dataioc[numpy]"
 ```
 
-同一套测量模型可以继承 `DataNDArray`，为 `RawReadings` 使用 NumPy 数组表示：
+## 逐小时计算购电费用
+
+每个数组元素代表一个小时内的恒定功率条件，日照强度单位为 kW/m²。两个数组分别来自两个日照传感器，时间位置一一对应。面板面积为 10 m²，效率为 20%，用电功率为 3 kW，电价为 1 元/kWh；不考虑储能与余电上网收益。
+
+`Irradiance` 继承 `DataNDArray`，可通过 `with_data` 注册带索引的数组。公式逐元素计算，`np.maximum` 对应标量模型中的 `max`：
 
 ```python
+import numpy as np
+
 from dataioc import DataDescriptor, DataIoC, DataNDArray
 
 
-class RawReadings(DataNDArray):
+class Irradiance(DataNDArray):
     pass
 
 
-class Measurements(DataDescriptor):
-    def __build__(self, container: DataIoC):
-        return container[RawReadings] / 10
+class SolarPower(DataDescriptor[np.ndarray]):
+    def __build__(self, data: DataIoC) -> np.ndarray:
+        efficiency = 0.2
+        panel_area = 10.0  # m²
+        return efficiency * panel_area * np.asarray(data[Irradiance])  # kW
 
 
-class Statistics(DataDescriptor):
-    def __build__(self, container: DataIoC):
-        values = container[Measurements]
-        return values.mean(), values.max()
+class GridEnergy(DataDescriptor[np.ndarray]):
+    def __build__(self, data: DataIoC) -> np.ndarray:
+        load_power = 3.0  # kW
+        duration = 1.0  # h per element
+        return np.maximum(load_power - data[SolarPower], 0.0) * duration  # kWh
 
 
-class Report(DataDescriptor):
-    def __build__(self, container: DataIoC):
-        mean, peak = container[Statistics]
-        return f"mean={mean:g}, peak={peak:g}"
+class ElectricityCost(DataDescriptor[np.ndarray]):
+    def __build__(self, data: DataIoC) -> np.ndarray:
+        price = 1.0  # CNY/kWh
+        return data[GridEnergy] * price  # CNY per element
 
 
-container = DataIoC().with_data(
-    RawReadings([10, 20, 60]),
-    RawReadings[1]([20, 40, 120]),
+class TotalElectricityCost(DataDescriptor[float]):
+    def __build__(self, data: DataIoC) -> float:
+        return float(data[ElectricityCost].sum())
+
+
+data = DataIoC().with_data(
+    Irradiance([0.8, 0.6, 0.0]),
+    Irradiance[1]([0.6, 0.4, 0.0]),
 )
-assert container[Report] == "mean=3, peak=6"
-assert container[Report[1]] == "mean=6, peak=12"
+np.testing.assert_allclose(data[ElectricityCost[0]], [1.4, 1.8, 3.0])
+np.testing.assert_allclose(data[ElectricityCost[1]], [1.8, 2.2, 3.0])
+assert round(data[TotalElectricityCost[0]], 2) == 6.20
+assert round(data[TotalElectricityCost[1]], 2) == 7.00
 ```
 
-变化的只有叶子数据的表示方式和数值操作。四个模型角色及索引依赖行为都与其他指南保持一致。
+索引区分传感器，数组元素区分时段。第一组输入在首小时得到与 README 相同的 1.4 元费用；第三小时日照为零，全部用电由电网提供，费用为 3 元。两组读数对应的三小时总费用分别为 6.2 元和 7 元。
+
+`SolarPower` 使用 `np.asarray` 将输入作为普通数组参与计算，后续派生数组由各自的描述符标识。请求 `TotalElectricityCost` 后，逐小时费用及其依赖也已缓存，可直接复用。
+
+## 使用实测功率数组
+
+Provider 的使用方式与标量模型相同。输入为对应三个小时的实测功率时，可直接替换 `SolarPower`：
+
+```python
+measured = DataIoC().add_provider(
+    SolarPower,
+    lambda _: np.array([1.2, 1.0, 0.0]),  # kW
+)
+np.testing.assert_allclose(measured[ElectricityCost], [1.8, 2.0, 3.0])
+assert round(measured[TotalElectricityCost], 2) == 6.80
+```
+
+此时无需提供日照数组，购电量与费用公式继续复用。三个小时的费用分别为 1.8 元、2 元和 3 元，总费用为 6.8 元。
+
+数组长度、时段对应关系与单位由模型代码约定，容器不负责自动对齐时序数据。不同数据或 provider 配置需要重新求值时，应创建新容器；缓存行为见[核心概念](concepts.zh.md)。
 
 ## 兼容范围
 

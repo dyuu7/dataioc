@@ -4,38 +4,41 @@
 
 ## A quantity is a stable key
 
-`DataDescriptor` identifies a value in the model. Its name can represent a domain concept such as raw readings, usable measurements, statistics, or a report.
+`DataDescriptor` identifies a quantity in the model. This page uses the solar electricity model from [Quickstart](quickstart.md): `Irradiance` represents solar irradiance, `SolarPower` represents solar output, `GridEnergy` represents purchased electricity, and `ElectricityCost` represents its cost. Panel area, efficiency, load power, duration, and price are the same as in the README.
 
 ```python
 from dataioc import DataDescriptor, DataIoC
 
 
-class RawReadings(DataDescriptor[tuple[int, ...]]):
+class Irradiance(DataDescriptor[float]):
     pass
 
 
-class Measurements(DataDescriptor[tuple[float, ...]]):
-    def __build__(self, container: DataIoC) -> tuple[float, ...]:
-        return tuple(value / 10 for value in container[RawReadings])
+class SolarPower(DataDescriptor[float]):
+    def __build__(self, data: DataIoC) -> float:
+        efficiency = 0.2
+        panel_area = 10.0  # m²
+        return efficiency * panel_area * data[Irradiance]  # kW
 
 
-class Statistics(DataDescriptor[tuple[float, float]]):
-    def __build__(self, container: DataIoC) -> tuple[float, float]:
-        values = container[Measurements]
-        return sum(values) / len(values), max(values)
+class GridEnergy(DataDescriptor[float]):
+    def __build__(self, data: DataIoC) -> float:
+        load_power = 3.0  # kW
+        duration = 1.0  # h
+        return max(load_power - data[SolarPower], 0.0) * duration  # kWh
 
 
-class Report(DataDescriptor[str]):
-    def __build__(self, container: DataIoC) -> str:
-        mean, peak = container[Statistics]
-        return f"mean={mean:g}, peak={peak:g}"
+class ElectricityCost(DataDescriptor[float]):
+    def __build__(self, data: DataIoC) -> float:
+        price = 1.0  # CNY/kWh
+        return data[GridEnergy] * price  # CNY
 ```
 
 A descriptor is the container key, not the stored value itself. It may carry hashable parameters so that one descriptor class can identify related values. Do not mutate a descriptor after registration, because its parameters participate in equality and hashing.
 
 ## A builder is a local rule
 
-A builder says how to obtain one quantity from its direct dependencies. In the example, `Report` knows about `Statistics`, but not about `Measurements` or `RawReadings`. Each lower layer owns the next relationship.
+A builder defines how to calculate a quantity from its direct dependencies. For example, `ElectricityCost` depends only on `GridEnergy`. The derivation of grid energy from solar power belongs to `GridEnergy`, and the derivation of solar power from irradiance belongs to `SolarPower`.
 
 A builder can be:
 
@@ -43,18 +46,18 @@ A builder can be:
 - a callable accepting one `DataIoC` argument;
 - a class with a suitable `__build__` method.
 
-Dependencies are requested with `container[Target]`. These requests are ordinary Python, so a builder can use conditions, loops, libraries, or existing domain objects.
+Dependencies are requested with `data[Target]`. These requests are ordinary Python, so a builder can use conditions, loops, libraries, or existing domain objects.
 
 ## Requests form the graph
 
 ```python
-container = DataIoC().add(RawReadings, (10, 20, 60))
-assert container[Report] == "mean=3, peak=6"
+data = DataIoC().add(Irradiance, 0.8)  # kW/m²
+assert round(data[ElectricityCost], 2) == 1.40
 ```
 
-Requesting `Report` forms and resolves `Report -> Statistics -> Measurements -> RawReadings`. The graph is implicit in the local rules and is expanded only as far as the requested result requires. Callers do not maintain a separate list of steps or execution order.
+Requesting `ElectricityCost` forms and resolves `ElectricityCost → GridEnergy → SolarPower → Irradiance`. The graph is implicit in the local rules and is expanded only as far as the requested result requires. Callers do not maintain a separate list of steps or execution order.
 
-This is an executable dependency model, not a workflow scheduler: evaluation is synchronous and local to one process.
+`dataioc` resolves dependencies and executes calculations synchronously within the current process. It organizes data dependencies and does not provide workflow scheduling.
 
 ## Register values and implementations
 
@@ -63,16 +66,16 @@ This is an executable dependency model, not a workflow scheduler: evaluation is 
 | `with_data(*values)` | Register existing instances by type; indexed instances keep their descriptors |
 | `add(Target)` | Register the target's own lazy builder |
 | `add(Target, value)` | Register an existing value other than `None` |
-| `container[Target] = value` | Set a value directly, including an explicit `None` |
+| `data[Target] = value` | Set a value directly, including an explicit `None` |
 | `add_provider(Target, provider)` | Bind the target to another builder |
 
 By default, the container discovers a target's own builder on first access. Strict mode requires every requested key to have data or a registered builder:
 
 ```python
 strict = DataIoC(allow_implicit_registering=False)
-strict.add(Report).add(Statistics).add(Measurements)
-strict.add(RawReadings, (10, 20, 60))
-assert strict[Report] == "mean=3, peak=6"
+strict.add(ElectricityCost).add(GridEnergy).add(SolarPower)
+strict.add(Irradiance, 0.8)
+assert round(strict[ElectricityCost], 2) == 1.40
 ```
 
 `add(Target, None)` selects builder registration because `None` is the method's default argument. Use item assignment to store `None` as a value.
@@ -83,12 +86,12 @@ See [Providers](providers.md) for choosing another implementation at container a
 
 Each successfully built key is cached, including a value of `None`. Repeated requests within one container therefore share the same result. Different indexed keys have separate cache entries; ordinary types and `UniqueData` are shared across IDs.
 
-A container represents one resolved dataset and provider configuration. Replacing a source or provider does not invalidate values already built from it. Use a fresh container when the inputs or bindings should produce fresh results.
+A container represents a fixed set of inputs and provider bindings and can manage multiple sensors or datasets through indices. Changes to inputs or bindings do not automatically invalidate existing results; use a new container to recompute results after such changes. Providers select sources or derivation methods, while indices distinguish data groups; see [Indexed data](indexed-data.md).
 
 ## Failure and diagnostics
 
 Failed builds are not cached; dependencies that completed successfully remain cached. A failed top-level build prints its dependency tree and re-raises the original exception. After supplying missing data or fixing the builder, the target can be requested again.
 
-Successful access trees are normally cleared. Set `record_all=True` to retain them in `container.logger`; see [Provider diagnostics](providers.md#diagnostics).
+Successful access trees are normally cleared. Set `record_all=True` to retain them in `data.logger`; see [Provider diagnostics](providers.md#diagnostics).
 
 The container does not provide thread safety, asynchronous construction, automatic dependent invalidation, or cycle detection.

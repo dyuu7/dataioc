@@ -1,109 +1,113 @@
 # Providers
 
-A provider binds a stable quantity to a concrete source or derivation. The binding belongs to container assembly, while downstream code keeps depending on the quantity itself.
+A provider binds a quantity to a specific source or derivation method. This page extends the solar electricity model from [Quickstart](quickstart.md) with measured data, an alternative formula with its own dependencies, and configuration for one acquisition channel. Execute the code blocks in order.
 
-## Keep consumers independent of the source
+## Replace an estimate with a measurement
+
+The default model estimates solar power from irradiance, then calculates grid energy and cost for one hour. Panel area, efficiency, load power, and price are the same as in the README:
 
 ```python
 from dataioc import DataDescriptor, DataIoC
 
 
-class RawReadings(DataDescriptor[tuple[int, ...]]):
+class Irradiance(DataDescriptor[float]):
     pass
 
 
-class Measurements(DataDescriptor[tuple[float, ...]]):
-    def __build__(self, container: DataIoC) -> tuple[float, ...]:
-        return tuple(value / 10 for value in container[RawReadings])
+class SolarPower(DataDescriptor[float]):
+    def __build__(self, data: DataIoC) -> float:
+        efficiency = 0.2
+        panel_area = 10.0  # m²
+        return efficiency * panel_area * data[Irradiance]  # kW
 
 
-class Statistics(DataDescriptor[tuple[float, float]]):
-    def __build__(self, container: DataIoC) -> tuple[float, float]:
-        values = container[Measurements]
-        return sum(values) / len(values), max(values)
+class GridEnergy(DataDescriptor[float]):
+    def __build__(self, data: DataIoC) -> float:
+        load_power = 3.0  # kW
+        duration = 1.0  # h
+        return max(load_power - data[SolarPower], 0.0) * duration  # kWh
 
 
-class Report(DataDescriptor[str]):
-    def __build__(self, container: DataIoC) -> str:
-        mean, peak = container[Statistics]
-        return f"mean={mean:g}, peak={peak:g}"
+class ElectricityCost(DataDescriptor[float]):
+    def __build__(self, data: DataIoC) -> float:
+        price = 1.0  # CNY/kWh
+        return data[GridEnergy] * price  # CNY
 
 
-live = DataIoC().add(RawReadings, (10, 20, 60))
-assert live[Report] == "mean=3, peak=6"
+estimated = DataIoC().add(Irradiance, 0.8)  # kW/m²
+assert round(estimated[ElectricityCost], 2) == 1.40
 ```
 
-`Statistics` depends on the concept `Measurements`, not on where the values came from. A provider can supply recorded measurements under the same key:
+`GridEnergy` depends on the power value identified by `SolarPower`. A provider bound to that key can supply a measurement of 1.2 kW:
 
 ```python
-recorded = DataIoC().add_provider(
-    Measurements,
-    lambda _: (2.0, 4.0, 12.0),
-)
-assert recorded[Report] == "mean=6, peak=12"
+measured = DataIoC().add_provider(SolarPower, lambda _: 1.2)  # kW
+assert round(measured[ElectricityCost], 2) == 1.80
 ```
 
-`recorded` needs no `RawReadings`. The provider replaces the upstream path at `Measurements`; `Statistics` and `Report` are unchanged.
+This container requires no `Irradiance`. The provider replaces the default derivation at `SolarPower`, while the grid energy and cost formulas are reused. The cost changes from 1.4 to 1.8 CNY. An existing fixed value can also be registered directly with `DataIoC().add(SolarPower, 1.2)`; providers support reading data or running alternative calculations on demand.
 
-## Give a provider its own dependencies
+## Declare dependencies for an alternative formula
 
-A provider can define another local derivation instead of returning a fixed or loaded value:
+Planning analysis may also account for losses in the estimated output. Here the dimensionless `LossFactor` represents the fraction of power retained; a value of 0.75 retains 75% of the original estimate.
 
 ```python
-class Calibration(DataDescriptor[float]):
+class LossFactor(DataDescriptor[float]):
     pass
 
 
-class CalibratedMeasurements:
-    def __build__(self, container: DataIoC) -> tuple[float, ...]:
-        scale = container[Calibration]
-        return tuple(value * scale for value in container[RawReadings])
+class LossAdjustedSolarPower:
+    def __build__(self, data: DataIoC) -> float:
+        efficiency = 0.2
+        panel_area = 10.0  # m²
+        return efficiency * panel_area * data[Irradiance] * data[LossFactor]
 
 
-calibrated = (
+adjusted = (
     DataIoC()
-    .add(RawReadings, (10, 20, 60))
-    .add(Calibration, 0.2)
-    .add_provider(Measurements, CalibratedMeasurements())
+    .add(Irradiance, 0.8)
+    .add(LossFactor, 0.75)
+    .add_provider(SolarPower, LossAdjustedSolarPower())
 )
-assert calibrated[Report] == "mean=6, peak=12"
+assert round(adjusted[SolarPower], 2) == 1.20
+assert round(adjusted[ElectricityCost], 2) == 1.80
 ```
 
-The alternative path is now `RawReadings + Calibration -> Measurements`. Provider objects can carry state and request dependencies through the same container. This lets `Measurements` keep a stable identity while recorded, simulated, calibrated, and estimated implementations vary between runs.
+The derivation is now `Irradiance + LossFactor → SolarPower`. The provider requests its direct dependencies through the container, while `GridEnergy` and `ElectricityCost` remain unchanged. The alternative implementation should request its inputs; requesting `SolarPower` itself while building `SolarPower` would create a circular dependency.
 
-Providers can be callables, objects with `__build__`, or classes with a suitable `__build__` method. Their results are resolved lazily and cached like other built values.
+A provider can be a callable accepting the container, an object with `__build__`, or a class with a suitable `__build__` method. Provider objects may carry state, and successfully built results are cached per key.
 
-## Bind one indexed quantity
+## Configure a derivation for one acquisition channel
+
+Two irradiance sensors can supply separate inputs to the same grid electricity model. Index 0 uses the default formula, while index 1 uses the formula with a loss adjustment. All other model parameters are identical:
 
 ```python
-indexed = DataIoC().add_provider(
-    Measurements[1],
-    lambda _: (2.0, 4.0, 12.0),
+indexed = (
+    DataIoC()
+    .add(Irradiance[0], 0.8)
+    .add(Irradiance[1], 0.6)
+    .add(LossFactor[1], 0.75)
+    .add_provider(SolarPower[1], LossAdjustedSolarPower())
 )
-indexed.add_provider(
-    Measurements[2],
-    lambda _: (1.0, 2.0, 6.0),
-)
-
-assert indexed[Report[1]] == "mean=6, peak=12"
-assert indexed[Report[2]] == "mean=3, peak=6"
+assert round(indexed[ElectricityCost[0]], 2) == 1.40
+assert round(indexed[ElectricityCost[1]], 2) == 2.10
 ```
 
-Each descriptor provider applies only to that key. Dependencies without an explicit ID inherit the ID being built, so `Report[1]` reaches `Measurements[1]` and `Report[2]` reaches `Measurements[2]`.
+Each provider binding applies only to its specified key. A request for `ElectricityCost[1]` propagates index 1 through the dependencies. Within the provider, `Irradiance` and `LossFactor` resolve to `Irradiance[1]` and `LossFactor[1]`, respectively, giving 0.9 kW of solar power and a cost of 2.1 CNY. Index 0 still uses the default derivation.
 
-Weak dependencies requested inside a provider inherit the target's current ID. Explicitly indexed dependencies keep their ID; see [Indexed data](indexed-data.md).
+Providers select sources or derivation methods, while indices distinguish acquisition channels. Descriptor dependencies requested inside a provider inherit the target's current index unless they specify an explicit index. See [Indexed data](indexed-data.md).
 
 ## Configure before resolving
 
-Register providers before the target's first access. Repeated registration replaces the builder used by future uncached requests, but it does not invalidate existing cached values or their dependents. Use a fresh container to evaluate the model with another set of bindings.
+Register providers before the target's first access. Repeated registration replaces the builder used by future uncached requests, but does not invalidate existing results or their cached dependents. Use a new container to recompute results after changes to inputs or bindings.
 
 ## Diagnostics
 
 ```python
 diagnostic = DataIoC(record_all=True)
-diagnostic.add_provider(Measurements, lambda _: (1.0, 2.0, 6.0))
-assert diagnostic[Report] == "mean=3, peak=6"
+diagnostic.add_provider(SolarPower, lambda _: 1.2)
+assert round(diagnostic[ElectricityCost], 2) == 1.80
 print(diagnostic.logger)
 ```
 
-The logger shows nested dependencies, constructed values, provider substitutions, and failures. With `record_all=False`, successful access trees are cleared. A failing top-level build prints the dependency tree and re-raises the original exception. Clear retained records with `container.logger.clear()`.
+The logger shows nested dependencies, constructed results, provider substitutions, and failures. With `record_all=False`, successful access trees are cleared; setting `record_all=True` retains them. A failing top-level build prints the dependency tree and re-raises the original exception. Clear retained records with `diagnostic.logger.clear()`.
