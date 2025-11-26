@@ -1,5 +1,3 @@
-"""Lazy, indexed data dependency injection without mandatory numerical libraries."""
-
 from typing import TYPE_CHECKING
 
 from ._data import (

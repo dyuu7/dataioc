@@ -85,6 +85,13 @@ python -m pip install "dataioc[numpy]"
 
 [yanang007](https://github.com/yanang007) 编写了最初的容器实现。[dyuu7](https://github.com/dyuu7) 提出了这套设想，将其工程化以及抽取为 `dataioc`，并负责维护。
 
-[![贡献者](https://contrib.rocks/image?repo=dyuu7/dataioc)](https://github.com/dyuu7/dataioc/graphs/contributors)
+<a href="https://github.com/yanang007">
+  <img src="https://wsrv.nl/?url=avatars.githubusercontent.com/u/8695716&amp;w=128&amp;h=128&amp;fit=cover&amp;mask=circle&amp;output=png"
+       width="64" height="64" alt="yanang007" title="yanang007" />
+</a>
+<a href="https://github.com/dyuu7">
+  <img src="https://wsrv.nl/?url=avatars.githubusercontent.com/u/49279922&amp;w=128&amp;h=128&amp;fit=cover&amp;mask=circle&amp;output=png"
+       width="64" height="64" alt="dyuu7" title="dyuu7" />
+</a>
 
 代码采用 [MIT License](https://github.com/dyuu7/dataioc/blob/main/LICENSE)。
