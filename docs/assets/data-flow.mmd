@@ -19,16 +19,17 @@ config:
     padding: 12
 ---
 flowchart TB
-    subgraph Default["Without a provider"]
+    subgraph Default["Planning: estimate solar power"]
         direction LR
-        RawReadingsA[RawReadings] --> MeasurementsA[Measurements] --> StatisticsA[Statistics] --> ReportA[Report]
+        Irradiance["Irradiance<br/>0.8 kW/m²"] --> SolarPowerA["SolarPower<br/>1.6 kW"] --> GridEnergyA["GridEnergy<br/>1.4 kWh"] --> ElectricityCostA["ElectricityCost<br/>1.4 CNY"]
     end
-    subgraph Replaced["With a provider bound to Measurements"]
+    subgraph Replaced["Review: measured power via a provider"]
         direction LR
-        RecordedData[Recorded data] -->|"replaces default derivation"| MeasurementsB[Measurements] --> StatisticsB[Statistics] --> ReportB[Report]
+        Meter["Meter reading<br/>1.2 kW"] --> SolarPowerB["SolarPower<br/>1.2 kW"] --> GridEnergyB["GridEnergy<br/>1.8 kWh"] --> ElectricityCostB["ElectricityCost<br/>1.8 CNY"]
     end
+    Default ~~~ Replaced
     classDef derived fill:#e1f3ed,stroke:#278668,stroke-width:2px
     classDef source fill:#ffffff,stroke:#a26624,stroke-width:2px,stroke-dasharray:5 4
-    class MeasurementsA,MeasurementsB derived
-    class RecordedData source
+    class SolarPowerA,SolarPowerB derived
+    class Meter source
     linkStyle 3 stroke:#a26624,stroke-width:2px,color:#a26624

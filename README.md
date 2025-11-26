@@ -2,7 +2,7 @@
 
 **Declarative data dependency graphs for Python.**
 
-Each `DataDescriptor` names a quantity and defines how it is derived from its direct dependencies. `DataIoC` composes these local rules into a graph, then resolves and caches only the subgraph required by the result you request. Bind a provider to any quantity to replace that part of the graph without changing downstream calculations.
+Each `DataDescriptor` names a quantity and defines how it is derived from its direct dependencies. `DataIoC` composes these local rules into a graph, then resolves and caches only the subgraph required by the requested result. A provider binding replaces a quantity's source or derivation without changing downstream calculations.
 
 [English](https://github.com/dyuu7/dataioc/blob/main/README.md) | [简体中文](https://github.com/dyuu7/dataioc/blob/main/README.zh-CN.md) | [Documentation](https://dyuu7.github.io/dataioc/) | [PyPI](https://pypi.org/project/dataioc/)
 
@@ -10,60 +10,72 @@ Each `DataDescriptor` names a quantity and defines how it is derived from its di
 
 ## Example
 
-The raw readings `10`, `20`, and `60` represent measurements of `1`, `2`, and `6`.
+This example calculates the cost of grid electricity for a building with a solar power system over one hour. During planning, solar power is estimated from irradiance. During operation, meter readings provide measured power. Both stages use the same grid energy and cost formulas.
 
-<img src="https://raw.githubusercontent.com/dyuu7/dataioc/main/docs/assets/data-flow.png" width="720" alt="By default, RawReadings are converted into Measurements. When a provider binds recorded data to Measurements, that default derivation is replaced while Statistics and Report remain unchanged." />
+The model assumes constant power throughout the hour and excludes battery storage and revenue from exported electricity. The panels cover 10 m² at 20% efficiency; the building's power demand is 3 kW, and grid electricity costs 1 CNY/kWh.
+
+- Solar power (kW) = efficiency × panel area (m²) × irradiance (kW/m²).
+- Grid energy (kWh) = max(load power − solar power, 0) × duration (h).
+- Electricity cost (CNY) = grid energy × price (CNY/kWh).
+
+`DataDescriptor` identifies a quantity in the model. For a derived quantity, its `__build__` method defines the calculation:
+
+<img src="https://raw.githubusercontent.com/dyuu7/dataioc/main/docs/assets/data-flow.png" width="720" alt="During planning, SolarPower is derived from Irradiance and used to calculate GridEnergy and ElectricityCost. For operational analysis, a provider supplies measured SolarPower, replacing the derivation from irradiance while the remaining formulas stay unchanged." />
 
 ```python
 from dataioc import DataDescriptor, DataIoC
 
 
-class RawReadings(DataDescriptor):
+class Irradiance(DataDescriptor):
     pass
 
 
-class Measurements(DataDescriptor):
+class SolarPower(DataDescriptor):
     def __build__(self, data):
-        return tuple(value / 10 for value in data[RawReadings])
+        efficiency = 0.2
+        panel_area = 10.0  # m²
+        return efficiency * panel_area * data[Irradiance]  # kW
 
 
-class Statistics(DataDescriptor):
+class GridEnergy(DataDescriptor):
     def __build__(self, data):
-        values = data[Measurements]
-        return sum(values) / len(values), max(values)
+        load_power = 3.0  # kW
+        duration = 1.0  # h
+        return max(load_power - data[SolarPower], 0.0) * duration  # kWh
 
 
-class Report(DataDescriptor):
+class ElectricityCost(DataDescriptor):
     def __build__(self, data):
-        mean, peak = data[Statistics]
-        return f"mean={mean:g}, peak={peak:g}"
+        price = 1.0  # CNY/kWh
+        return data[GridEnergy] * price  # CNY
 
 
-data = DataIoC().add(RawReadings, (10, 20, 60))
-assert data[Report] == "mean=3, peak=6"
-assert data[Measurements] is data[Measurements]
+data = DataIoC().add(Irradiance, 0.8)  # kW/m²
+assert round(data[ElectricityCost], 2) == 1.40
 ```
 
-`data[Report]` is the only request the caller has to make. The container follows the dependencies and caches each value it builds.
+At an irradiance of 0.8 kW/m², the model yields 1.6 kW of solar power and a grid energy requirement of 1.4 kWh, at a cost of 1.4 CNY. The caller only needs to request `data[ElectricityCost]`; the container computes the required intermediate quantities from their dependencies and caches the results.
 
-To use recorded measurements instead, bind a provider for `Measurements`:
+If the measured solar output during operation is 1.2 kW, a provider bound to `SolarPower` in a new container can supply this measurement in place of the estimate:
 
 ```python
-recorded = DataIoC().add_provider(Measurements, lambda _: (1.0, 2.0, 6.0))
-assert recorded[Report] == "mean=3, peak=6"
+measured = DataIoC().add_provider(SolarPower, lambda _: 1.2)  # kW
+assert round(measured[ElectricityCost], 2) == 1.80
 ```
 
-`RawReadings` is no longer needed; `Statistics` and `Report` stay as they are.
+Using measured power, the grid energy requirement is 1.8 kWh, at a cost of 1.8 CNY. The container no longer requires `Irradiance`: the provider replaces the default derivation of `SolarPower`, while the calculation rules for `GridEnergy` and `ElectricityCost` remain unchanged. In an application, the provider may also read power data from a file or call another prediction model.
+
+A container represents a fixed set of inputs and provider bindings and can manage multiple sensors or datasets through indices. Computed results are cached and are not automatically invalidated when inputs or provider bindings change; use a new container to recompute results after such changes. See [Core concepts](https://dyuu7.github.io/dataioc/concepts/) for dependency resolution, caching, and other runtime limits.
 
 ## When it helps
 
-If both the inputs and the calculation path are fixed, ordinary function calls are simpler. Use `dataioc` when the relationships stay stable but a value may come from live measurements, recorded data, a simulation, or an estimate.
+`dataioc` originated in [deinterf](https://github.com/dyuu7/deinterf), a magnetic interference compensation project. In that project, [field-direction quantities can be derived from magnetic sensor data or estimated by an inertial navigation system](https://github.com/dyuu7/deinterf/blob/main/examples/replace_direction_cosine_source_tmi.py), while the downstream compensation formulas need to be reused. The model therefore needs to distinguish the meaning of each quantity, its calculation dependencies, and the data source selected for each run.
 
-`dataioc` grew out of [deinterf](https://github.com/dyuu7/deinterf). In its [direction-cosine example](https://github.com/dyuu7/deinterf/blob/main/examples/replace_direction_cosine_source_tmi.py), the same compensation terms work whether direction cosines are derived from magnetic-vector measurements or supplied by an INS estimate. [aeromag-synth](https://github.com/dyuu7/aeromag-synth) applies the pattern to simulation: supply the inputs, request `Tmi`, and let the container resolve the intermediate quantities.
+`dataioc` generalizes this requirement into a data dependency container: the model defines local calculation rules for each quantity, and the application configures inputs and sources before requesting the required results. [aeromag-synth](https://github.com/dyuu7/aeromag-synth) uses the same approach in magnetic survey simulation.
 
-## Scope
+Multiple sensors of the same type may also measure the same physical quantity. `dataioc` uses [indices](https://dyuu7.github.io/dataioc/indexed-data/) to distinguish data from separate acquisition channels, apply the same calculation rules to each sensor, and cache the corresponding results independently. Providers select derivation methods, while indices distinguish acquisition channels. These mechanisms can be combined, for example, to configure a separate calibration method for each sensor.
 
-`dataioc` resolves data dependencies synchronously in the current process; it is not a workflow scheduler. Use a fresh container for each dataset or provider configuration. See [Core concepts](https://dyuu7.github.io/dataioc/concepts/) for caching, diagnostics, and other runtime limits.
+This approach suits scientific and engineering models that evolve through successive iterations, allowing different derivation methods and multiple measurement datasets to share calculation logic. Existing numerical functions can continue to perform the calculations, while the container organizes their data dependencies.
 
 ## Install
 
