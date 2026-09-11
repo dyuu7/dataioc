@@ -47,12 +47,17 @@ plugins:
             "Indexed data": 索引数据
             "NumPy support": NumPy 支持
             API: API
-            Maintenance: 维护
   - mkdocstrings:
       handlers:
         python:
+          paths:
+            - src
           options:
             docstring_style: numpy
+            docstring_options:
+              ignore_init_summary: true
+            docstring_section_style: list
+            merge_init_into_class: true
             members_order: source
             show_source: false
             show_root_heading: true
@@ -65,7 +70,6 @@ nav:
   - Indexed data: indexed-data.md
   - NumPy support: numpy.md
   - API: api.md
-  - Maintenance: maintenance.md
 
 markdown_extensions:
   - admonition
